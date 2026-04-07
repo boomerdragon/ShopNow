@@ -194,8 +194,8 @@ def registrar_cliente(nuevo: ClienteRegistro):
 def eliminar_cliente(id_cliente: int):
     """Elimina un cliente existente de la base de datos.
     
-    Busca y elimina un cliente por su ID único, liberando su registro
-    del archivo CSV persistente.
+    Marca un cliente como inactivo por su ID único. No se elimina físicamente 
+    el registro para evitar orfandad en pedidos que referencian este cliente.
     
     Args:
         id_cliente (int): ID único del cliente a eliminar.

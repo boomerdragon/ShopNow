@@ -1,5 +1,5 @@
 id_producto,descripcion,precio,activo
-1,Asada,700.0,True
+1,Asada,700.0,False
 2,Barbacoa,750.0,True
 3,Carnitas,600.0,True
 4,Pollo,500.0,True
@@ -18,3 +18,4 @@ id_producto,descripcion,precio,activo
 17,4K Monitor,399.0,True
 18,USB-C Cable,19.99,True
 19,4K Gaming Monitor 144Hz,599.99,True
+20,Producto X,99.99,True

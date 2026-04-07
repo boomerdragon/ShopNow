@@ -171,13 +171,15 @@ def crear_pedido(p: PedidoRegistro):
             print(f"Error consultando inventario: {e}")
             raise HTTPException(status_code=503, detail="No se puede conectar al servicio de Inventario")
         
-        # PASO 3: Validar que el cliente existe
+        # PASO 3: Validar que el cliente existe y está activo
         try:
             response = requests.get(f"{CLIENTES_URL}/clientes", timeout=5)
             clientes = response.json()
-            existe_cliente = any(cli['id_cliente'] == p.id_cliente for cli in clientes)
-            if not existe_cliente:
+            cliente = next((cli for cli in clientes if cli['id_cliente'] == p.id_cliente), None)
+            if not cliente:
                 raise HTTPException(status_code=400, detail="El cliente no existe en el padrón oficial")
+            if not cliente.get('activo', False):
+                raise HTTPException(status_code=400, detail="No se puede crear pedidos para clientes inactivos")
         except HTTPException:
             raise
         except Exception as e:

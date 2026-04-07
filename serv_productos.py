@@ -186,8 +186,8 @@ def registrar_producto(nuevo: ProductoRegistro):
 def eliminar_producto(id_producto: int):
     """**Elimina un producto existente del catálogo.**
     
-    Busca y elimina un producto por su ID único, liberando su registro
-    del archivo CSV persistente.
+    Busca y marca un producto como inactivo por su ID único. No se elimina
+    físicamente el registro para evitar orfandad en inventario y pedidos.
     
     **Args**:
 
@@ -208,9 +208,10 @@ def eliminar_producto(id_producto: int):
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     
-    productos.remove(producto)
+    # Marcar como inactivo en lugar de eliminar físicamente
+    producto['activo'] = False
     
-    # Reescribir el archivo CSV sin el producto eliminado
+    # Reescribir el archivo CSV con los cambios
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
@@ -223,7 +224,7 @@ def eliminar_producto(id_producto: int):
                 'activo': "True" if item_row['activo'] else "False"
             })
     
-    return {"mensaje": "Producto eliminado exitosamente", "status": "success"}
+    return {"mensaje": "Producto eliminado (inactivado) exitosamente", "status": "success"}
 
 @app.patch(
     "/productos/{id_producto}",
