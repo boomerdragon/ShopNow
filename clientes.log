@@ -1,18 +1,10 @@
 nohup: no se tendrá en cuenta la entrada
-INFO:     Started server process [11582]
+INFO:     Started server process [19480]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-▶ Conectando a RabbitMQ...
-✓ Conectado a RabbitMQ en localhost:5672
-✓ Servicio de Clientes iniciado y escuchando en RabbitMQ
-🔄 Escuchando mensajes en cola: clientes_requests
-INFO:     127.0.0.1:57612 - "GET /clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:44474 - "GET /clientes HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46354 - "GET /clientes HTTP/1.1" 200 OK
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-Exception in thread Thread-2 (consume):
-Traceback (most recent call last):
-  File "/usr/lib/python3.12/threading.py", line 1073, in _bootstrap_inner
-INFO:     Finished server process [11582]
+INFO:     Finished server process [19480]

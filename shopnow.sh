@@ -22,13 +22,12 @@ mostrar_ayuda() {
     echo -e "${CYAN}Uso: ./shopnow.sh [start|stop|status]${NC}"
     echo ""
     echo -e "${WHITE}Opciones:${NC}"
-    echo -e "  ${GREEN}start${NC}   - Levanta RabbitMQ y todos los servicios de ShopNow"
-    echo -e "  ${RED}stop${NC}    - Detiene todos los servicios y RabbitMQ"
+    echo -e "  ${GREEN}start${NC}   - Levanta todos los servicios de ShopNow"
+    echo -e "  ${RED}stop${NC}    - Detiene todos los servicios"
     echo -e "  ${BLUE}status${NC}  - Muestra el estado de los servicios"
     echo ""
     echo -e "${WHITE}Servicios:${NC}"
-    echo -e "  ${MAGENTA}RabbitMQ${NC}:  puerto 5672 (amqp), 15672 (dashboard)"
-    echo -e "  ${MAGENTA}Clientes${NC}:   puerto 8010"
+    echo -e "  ${MAGENTA}Clientes${NC}:   puerto 8000"
     echo -e "  ${MAGENTA}Productos${NC}:  puerto 8001"
     echo -e "  ${MAGENTA}Pedidos${NC}:    puerto 8002"
     echo -e "  ${MAGENTA}Inventario${NC}: puerto 8003"
@@ -40,36 +39,15 @@ mostrar_ayuda() {
 iniciar_servicios() {
     echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}       INICIANDO SHOPNOW - RabbitMQ + Microservicios${NC}"
+    echo -e "${BLUE}       INICIANDO SHOPNOW - Microservicios${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     
-    # Verificar que existe docker-compose.yml
-    #if [ ! -f "docker-compose.yml" ]; then
-    #    echo -e "${RED}✗ Error: docker-compose.yml no encontrado${NC}"
-    #    return 1
-    #fi
-    
-    # Iniciar RabbitMQ
-    #echo -e "${YELLOW}▶ Iniciando RabbitMQ...${NC}"
-    #docker compose up -d 2>/dev/null
-    
-    #if [ $? -eq 0 ]; then
-    #    echo -e "${GREEN}✓ RabbitMQ iniciado (puerto 5672, dashboard: http://localhost:15672)${NC}"
-    #    echo -e "  ${CYAN}Usuario: guest | Contraseña: guest${NC}"
-    #else
-    #    echo -e "${RED}✗ Error al iniciar RabbitMQ${NC}"
-    #    return 1
-    #fi
-    
-    ## Esperar a que RabbitMQ esté listo
-    #echo -e "${YELLOW}▶ Esperando que RabbitMQ esté disponible (30 segundos para estabilizar, paciencia)...${NC}"
-    #sleep 30
-    #echo ""
+
     
     # Iniciar Clientes
-    echo -e "${YELLOW}▶ Iniciando Clientes (puerto 8010)${NC}"
-    uvicorn serv_clientes:app --port 8010 --reload > /dev/null 2>&1 &
+    echo -e "${YELLOW}▶ Iniciando Clientes (puerto 8000)${NC}"
+    uvicorn serv_clientes:app --port 8000 --reload > /dev/null 2>&1 &
     CLIENTE_PID=$!
     echo -e "  ${GREEN}✓ PID: $CLIENTE_PID${NC}"
     sleep 1
@@ -103,15 +81,10 @@ iniciar_servicios() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${CYAN}📊 DOCUMENTACIÓN SWAGGER:${NC}"
-    echo -e "  • ${WHITE}Clientes${NC}:   ${CYAN}http://localhost:8010/docs${NC}"
+    echo -e "  • ${WHITE}Clientes${NC}:   ${CYAN}http://localhost:8000/docs${NC}"
     echo -e "  • ${WHITE}Productos${NC}:  ${CYAN}http://localhost:8001/docs${NC}"
     echo -e "  • ${WHITE}Pedidos${NC}:    ${CYAN}http://localhost:8002/docs${NC}"
     echo -e "  • ${WHITE}Inventario${NC}: ${CYAN}http://localhost:8003/docs${NC}"
-    echo ""
-    echo -e "${CYAN}🐰 RABBITMQ DASHBOARD:${NC}"
-    echo -e "  • ${WHITE}URL${NC}:       ${CYAN}http://localhost:15672${NC}"
-    echo -e "  • ${WHITE}Usuario${NC}:   ${CYAN}guest${NC}"
-    echo -e "  • ${WHITE}Contraseña${NC}: ${CYAN}guest${NC}"
     echo ""
 }
 
@@ -128,9 +101,9 @@ detener_servicios() {
     # Detener Clientes
     pkill -f "uvicorn serv_clientes:app"
     if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Clientes (puerto 8010)${NC} - ${RED}Detenido${NC}"
+        echo -e "${GREEN}✓ Clientes (puerto 8000)${NC} - ${RED}Detenido${NC}"
     else
-        echo -e "${YELLOW}○ Clientes (puerto 8010)${NC} - ${YELLOW}No estaba ejecutándose${NC}"
+        echo -e "${YELLOW}○ Clientes (puerto 8000)${NC} - ${YELLOW}No estaba ejecutándose${NC}"
     fi
     
     # Detener Productos
@@ -158,20 +131,8 @@ detener_servicios() {
     fi
     
     echo ""
-    
-    ## Detener RabbitMQ
-    #echo -e "${YELLOW}▶ Deteniendo RabbitMQ...${NC}"
-    #docker compose down 2>/dev/null
-    
-    #if [ $? -eq 0 ]; then
-    #    echo -e "${GREEN}✓ RabbitMQ${NC} - ${RED}Detenido${NC}"
-    #else
-    #    echo -e "${YELLOW}○ RabbitMQ${NC} - ${YELLOW}No pudo detenerse${NC}"
-    #fi
-    
-    echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${RED}✓ Todos los servicios han sido detenidos${NC}"
+    echo -e "${GREEN}✓ Todos los servicios han sido detenidos${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 }
 
@@ -185,25 +146,13 @@ verificar_estado() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     
-    # Verificar RabbitMQ
-    docker ps --filter "name=shopnow-rabbitmq" --quiet 2>/dev/null | grep -q .
-    if [ $? -eq 0 ]; then
-        CONTAINER_ID=$(docker ps --filter "name=shopnow-rabbitmq" --format "{{.ID}}" 2>/dev/null | head -1)
-        echo -e "${GREEN}✓ RabbitMQ (puerto 5672)${NC} - ${GREEN}EJECUTÁNDOSE${NC}"
-        echo -e "  ${CYAN}Container: ${CONTAINER_ID:0:12}${NC}"
-        echo -e "  ${CYAN}Dashboard: http://localhost:15672${NC}"
-    else
-        echo -e "${RED}✗ RabbitMQ (puerto 5672)${NC} - ${RED}DETENIDO${NC}"
-    fi
-    echo ""
-    
     # Verificar Clientes
     pgrep -f "uvicorn serv_clientes:app" > /dev/null
     if [ $? -eq 0 ]; then
         PID=$(pgrep -f "uvicorn serv_clientes:app")
-        echo -e "${GREEN}✓ Clientes (puerto 8010)${NC} - ${GREEN}EJECUTÁNDOSE${NC} ${CYAN}(PID: $PID)${NC}"
+        echo -e "${GREEN}✓ Clientes (puerto 8000)${NC} - ${GREEN}EJECUTÁNDOSE${NC} ${CYAN}(PID: $PID)${NC}"
     else
-        echo -e "${RED}✗ Clientes (puerto 8010)${NC} - ${RED}DETENIDO${NC}"
+        echo -e "${RED}✗ Clientes (puerto 8000)${NC} - ${RED}DETENIDO${NC}"
     fi
     
     # Verificar Productos

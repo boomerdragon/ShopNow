@@ -1,17 +1,10 @@
 nohup: no se tendrá en cuenta la entrada
-INFO:     Started server process [11573]
+INFO:     Started server process [19496]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
-▶ Conectando a RabbitMQ...
-✓ Conectado a RabbitMQ en localhost:5672
-✓ Servicio de Productos iniciado y escuchando en RabbitMQ
-🔄 Escuchando mensajes en cola: productos_requests
-INFO:     127.0.0.1:33620 - "GET /productos HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43422 - "GET /productos HTTP/1.1" 200 OK
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
-Exception in thread Thread-2 (consume):
 INFO:     Application shutdown complete.
-Traceback (most recent call last):
-INFO:     Finished server process [11573]
-  File "/home/boomer/ITQ/SOA/ShopNow/serv_productos.py", line 38, in lifespan
+INFO:     Finished server process [19496]
