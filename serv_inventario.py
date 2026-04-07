@@ -1,18 +1,17 @@
 import csv
 import os
-import json
-import pika
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from rabbitmq_client import RabbitMQClient, ROUTING_KEYS
+from typing import List
+
 
 app = FastAPI(
     title="Departamento de Inventario",
     description="Servicio encargado de la custodia y control de existencias físicas de productos.\n\n" \
     "Este servicio actúa como el punto central de integración para la validación de stock en los procesos de venta y gestión de pedidos. \n\n" \
     "Ejecutar en puerto **8003** y asegurarse de que los servicios de Pedidos (8002) y Productos (8001) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión RabbitMQ**: Ahora responde a solicitudes a través de un bus de mensajería.",
-    version="3.0.0 - RabbitMQ",
+    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    version="2.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
@@ -26,17 +25,28 @@ if not os.path.exists(FILE_NAME):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(HEADERS)
 
-# Cliente RabbitMQ global
-mq_client = RabbitMQClient(host='localhost', port=5672)
-
 # Contrato de Servicio (Formato Oficial)
 class MovimientoInventario(BaseModel):
     id_producto: int = Field(..., example=1) # type: ignore
     cantidad: int = Field(..., gt=0, example=5) # type: ignore
 
 def leer_inventario():
+    """Lee todo el inventario del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        rows = csv.DictReader(f)
+        items = []
+        for row in rows:
+            if not row or not row.get('id_producto'):  # Skip empty rows
+                continue
+            try:
+                item = {
+                    'id_producto': int(row['id_producto']),
+                    'cantidad': int(row['cantidad'])
+                }
+                items.append(item)
+            except (ValueError, KeyError):
+                continue  # Skip rows with invalid data
+        return items
 
 @app.get(
     "/inventario",
@@ -119,8 +129,8 @@ def consultar_stock(id_producto: int):
     """
     items = leer_inventario()
     for item in items:
-        if int(item['id_producto']) == id_producto:
-            return {"id_producto": id_producto, "cantidad": int(item['cantidad'])}
+        if item['id_producto'] == id_producto:
+            return {"id_producto": id_producto, "cantidad": item['cantidad']}
     raise HTTPException(status_code=404, detail="Producto no registrado en inventario")
 
 @app.post(
@@ -167,7 +177,7 @@ def registrar_inventario(mov: MovimientoInventario):
     items = leer_inventario()
     
     # Verificar que el producto no exista ya
-    if any(int(item['id_producto']) == mov.id_producto for item in items):
+    if any(item['id_producto'] == mov.id_producto for item in items):
         raise HTTPException(status_code=400, detail="El producto ya existe en el inventario")
     
     # Registrar nuevo producto en inventario
@@ -222,11 +232,11 @@ def descontar_stock(mov: MovimientoInventario):
     items = leer_inventario()
     encontrado = False
     for item in items:
-        if int(item['id_producto']) == mov.id_producto:
-            nueva_cantidad = int(item['cantidad']) - mov.cantidad
+        if item['id_producto'] == mov.id_producto:
+            nueva_cantidad = item['cantidad'] - mov.cantidad
             if nueva_cantidad < 0:
                 raise HTTPException(status_code=400, detail="Stock insuficiente en almacén")
-            item['cantidad'] = str(nueva_cantidad)
+            item['cantidad'] = nueva_cantidad
             encontrado = True
             break
     
@@ -236,7 +246,12 @@ def descontar_stock(mov: MovimientoInventario):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
-        writer.writerows(items)
+        # Convertir datos a strings para escribir en CSV
+        for item_row in items:
+            writer.writerow({
+                'id_producto': item_row['id_producto'],
+                'cantidad': item_row['cantidad']
+            })
         
     return {"mensaje": "Descuento de inventario aplicado exitosamente", "status": "success"}
 
@@ -283,10 +298,11 @@ def agregar_stock(mov: MovimientoInventario):
     """
     items = leer_inventario()
     encontrado = False
+    nueva_cantidad = 0
     for item in items:
-        if int(item['id_producto']) == mov.id_producto:
-            nueva_cantidad = int(item['cantidad']) + mov.cantidad
-            item['cantidad'] = str(nueva_cantidad)
+        if item['id_producto'] == mov.id_producto:
+            nueva_cantidad = item['cantidad'] + mov.cantidad
+            item['cantidad'] = nueva_cantidad
             encontrado = True
             break
     
@@ -296,120 +312,12 @@ def agregar_stock(mov: MovimientoInventario):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
-        writer.writerows(items)
+        # Convertir datos a strings para escribir en CSV
+        for item_row in items:
+            writer.writerow({
+                'id_producto': item_row['id_producto'],
+                'cantidad': item_row['cantidad']
+            })
         
     return {"mensaje": "Existencias agregadas exitosamente", "id_producto": mov.id_producto, "nueva_cantidad": nueva_cantidad, "status": "success"}
 
-
-# ============================================================================
-# MANEJADORES DE MENSAJES RABBITMQ
-# ============================================================================
-
-def handle_inventario_message(ch, method, properties, body):
-    """
-    Maneja mensajes de solicitud sobre inventario desde RabbitMQ.
-    
-    Operaciones soportadas:
-    - get_inventario: Obtiene el stock de un producto
-    - descontar_inventario: Descuenta stock tras una compra
-    """
-    try:
-        message = json.loads(body)
-        print(f"📨 Mensaje recibido en Inventario: {message}")
-        
-        # Obtener la información de respuesta
-        reply_to = properties.reply_to
-        correlation_id = properties.correlation_id
-        routing_key = method.routing_key
-        
-        response = None
-        
-        # Procesar según la routing key
-        if 'get' in routing_key:
-            # Consultar stock
-            id_producto = message.get('id_producto')
-            items = leer_inventario()
-            for item in items:
-                if int(item['id_producto']) == id_producto:
-                    response = {'id_producto': id_producto, 'cantidad': int(item['cantidad'])}
-                    break
-            if not response:
-                response = {'id_producto': id_producto, 'cantidad': 0, 'error': 'Producto no en inventario'}
-        
-        elif 'descontar' in routing_key:
-            # Descontar inventario
-            id_producto = message.get('id_producto')
-            cantidad = message.get('cantidad')
-            items = leer_inventario()
-            exito = False
-            
-            for item in items:
-                if int(item['id_producto']) == id_producto:
-                    nueva_cantidad = int(item['cantidad']) - cantidad
-                    if nueva_cantidad < 0:
-                        response = {'exito': False, 'error': 'Stock insuficiente', 'id_producto': id_producto}
-                    else:
-                        item['cantidad'] = str(nueva_cantidad)
-                        with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-                            writer = csv.DictWriter(f, fieldnames=HEADERS)
-                            writer.writeheader()
-                            writer.writerows(items)
-                        response = {'exito': True, 'id_producto': id_producto, 'nueva_cantidad': nueva_cantidad}
-                        exito = True
-                    break
-            
-            if not exito and not response:
-                response = {'exito': False, 'error': 'Producto no encontrado', 'id_producto': id_producto}
-        
-        # Enviar respuesta
-        mq_client.channel.basic_publish(
-            exchange='',
-            routing_key=reply_to,
-            body=json.dumps(response or {'error': 'Operación desconocida'}),
-            properties=pika.BasicProperties(
-                correlation_id=correlation_id
-            )
-        )
-        
-        ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"✓ Respuesta enviada: {response}")
-        
-    except Exception as e:
-        print(f"Error procesando mensaje de inventario: {e}")
-        ch.basic_nack(delivery_tag=method.delivery_tag)
-
-
-@app.on_event("startup")
-def startup_event():
-    """Evento de inicio: conectar a RabbitMQ y iniciar consumidor"""
-    try:
-        import pika
-        print("▶ Conectando a RabbitMQ...")
-        mq_client.connect()
-        
-        # Declarar exchange
-        mq_client.declare_exchange('servicios', exchange_type='direct')
-        
-        # Declarar y vincular cola para solicitudes de get y descontar
-        mq_client.declare_queue('inventario_requests')
-        mq_client.bind_queue('inventario_requests', 'servicios', ROUTING_KEYS['get_inventario'])
-        mq_client.bind_queue('inventario_requests', 'servicios', ROUTING_KEYS['descontar_inventario'])
-        
-        # Iniciar consumidor en thread separado
-        mq_client.start_consumer_thread('inventario_requests', handle_inventario_message)
-        
-        print("✓ Servicio de Inventario iniciado y escuchando en RabbitMQ")
-    except Exception as e:
-        print(f"⚠ Advertencia: Error al conectar a RabbitMQ en startup: {e}")
-        print("ℹ El servicio seguirá ejecutándose pero sin soporte de mensajería RabbitMQ")
-        # No lanzamos la excepción para permitir que el servicio siga funcionando
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Evento de cierre: desconectar de RabbitMQ"""
-    try:
-        mq_client.close()
-        print("✓ Servicio de Inventario desconectado de RabbitMQ")
-    except Exception as e:
-        print(f"Error al desconectar de RabbitMQ: {e}")

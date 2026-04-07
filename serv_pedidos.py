@@ -1,18 +1,18 @@
 import csv
 import os
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
-from rabbitmq_client import RabbitMQClient, ROUTING_KEYS
-import json
+
 
 app = FastAPI(
     title="Coordinador de Pedidos",
     description="Servicio encargado de la coordinación y gestión de pedidos de venta, con validación de clientes e inventario. \n\n" \
     "Este servicio actúa como el punto central de integración entre los departamentos de Clientes, Productos e Inventario para garantizar la correcta ejecución de las ventas. \n\n" \
-    "Ejecutar en puerto **8002** y asegurarse de que los servicios de Clientes (8010), Productos (8001) e Inventario (8003) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión RabbitMQ**: Ahora se comunica a través de un bus de mensajería.",
-    version="3.0.0 - RabbitMQ",
+    "Ejecutar en puerto **8002** y asegurarse de que los servicios de Clientes (8000), Productos (8001) e Inventario (8003) estén activos para su correcto funcionamiento. \n\n" \
+    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    version="2.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
@@ -25,8 +25,10 @@ if not os.path.exists(FILE_NAME):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(HEADERS)
 
-# Cliente RabbitMQ global
-mq_client = RabbitMQClient(host='localhost', port=5672)
+# URLs de los servicios
+CLIENTES_URL = "http://localhost:8000"
+PRODUCTOS_URL = "http://localhost:8001"
+INVENTARIO_URL = "http://localhost:8003"
 
 class Pedido(BaseModel):
     id_pedido: int = Field(..., example=501)  # type: ignore
@@ -40,9 +42,24 @@ class PedidoRegistro(BaseModel):
     cantidad: int = Field(..., gt=0, example=2) # type: ignore
 
 def leer_pedidos():
-    """Lee todos los pedidos del archivo CSV."""
+    """Lee todos los pedidos del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        rows = csv.DictReader(f)
+        pedidos = []
+        for row in rows:
+            if not row or not row.get('id_pedido'):  # Skip empty rows
+                continue
+            try:
+                pedido = {
+                    'id_pedido': int(row['id_pedido']),
+                    'id_cliente': int(row['id_cliente']),
+                    'id_producto': int(row['id_producto']),
+                    'cantidad': int(row['cantidad'])
+                }
+                pedidos.append(pedido)
+            except (ValueError, KeyError):
+                continue  # Skip rows with invalid data
+        return pedidos
 
 @app.get(
     "/pedidos",
@@ -106,9 +123,9 @@ def obtener_pedidos():
     }
 )
 def crear_pedido(p: PedidoRegistro):
-    """Crea un nuevo pedido con validación integrada a través de RabbitMQ.
+    """Crea un nuevo pedido con validación integrada a través de HTTP.
     
-    Ejecuta el siguiente flujo de validación usando mensajería:
+    Ejecuta el siguiente flujo de validación usando llamadas HTTP:
     1. Consulta el servicio de productos para verificar que el producto existe
     2. Verifica que hay inventario suficiente para completar el pedido
     3. Valida que el cliente existe en el padrón oficial
@@ -128,62 +145,62 @@ def crear_pedido(p: PedidoRegistro):
         HTTPException: Con status 503 si no hay disponibilidad de servicios.
     """
     try:
-        # PASO 1a: Validar que el producto existe (a través de RabbitMQ)
-        response = mq_client.request_reply(
-            exchange='servicios',
-            routing_key=ROUTING_KEYS['validate_producto'],
-            message={'id_producto': p.id_producto}
-        )
+        # PASO 1: Validar que el producto existe
+        try:
+            response = requests.get(f"{PRODUCTOS_URL}/productos", timeout=5)
+            productos = response.json()
+            existe_producto = any(prod['id_producto'] == p.id_producto for prod in productos)
+            if not existe_producto:
+                raise HTTPException(status_code=400, detail="Producto no existe en el catálogo")
+        except Exception as e:
+            print(f"Error consultando productos: {e}")
+            raise HTTPException(status_code=503, detail="No se puede conectar al servicio de Productos")
         
-        if response is None:
-            raise HTTPException(status_code=503, detail="Timeout esperando validación de producto")
-        if not response.get('existe'):
-            raise HTTPException(status_code=400, detail="Producto no existe en el catálogo")
+        # PASO 2: Validar que hay inventario suficiente
+        try:
+            response = requests.get(f"{INVENTARIO_URL}/inventario/{p.id_producto}", timeout=5)
+            if response.status_code == 404:
+                raise HTTPException(status_code=400, detail="Producto sin registro de inventario")
+            inventario = response.json()
+            stock_actual = inventario.get('cantidad', 0)
+            if p.cantidad > stock_actual:
+                raise HTTPException(status_code=400, detail="Inventario insuficiente para completar el pedido")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error consultando inventario: {e}")
+            raise HTTPException(status_code=503, detail="No se puede conectar al servicio de Inventario")
         
-        # PASO 1b: Consultar inventario disponible (a través de RabbitMQ)
-        response = mq_client.request_reply(
-            exchange='servicios',
-            routing_key=ROUTING_KEYS['get_inventario'],
-            message={'id_producto': p.id_producto}
-        )
+        # PASO 3: Validar que el cliente existe
+        try:
+            response = requests.get(f"{CLIENTES_URL}/clientes", timeout=5)
+            clientes = response.json()
+            existe_cliente = any(cli['id_cliente'] == p.id_cliente for cli in clientes)
+            if not existe_cliente:
+                raise HTTPException(status_code=400, detail="El cliente no existe en el padrón oficial")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error consultando clientes: {e}")
+            raise HTTPException(status_code=503, detail="No se puede conectar al servicio de Clientes")
         
-        if response is None:
-            raise HTTPException(status_code=503, detail="Timeout esperando consulta de inventario")
-        if not response or response.get('cantidad') == 0:
-            raise HTTPException(status_code=400, detail="Producto sin registro de inventario")
+        # PASO 4: Descontar inventario
+        try:
+            response = requests.post(
+                f"{INVENTARIO_URL}/inventario/descontar",
+                json={"id_producto": p.id_producto, "cantidad": p.cantidad},
+                timeout=5
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=503, detail="Error al descontar inventario")
+        except Exception as e:
+            print(f"Error descuentan inventario: {e}")
+            raise HTTPException(status_code=503, detail="No se puede descontar inventario")
         
-        stock_actual = response.get('cantidad', 0)
-        if stock_actual <= 0 or p.cantidad > stock_actual:
-            raise HTTPException(status_code=400, detail="Inventario insuficiente para completar el pedido")
-        
-        # PASO 2: Validar que el cliente existe (a través de RabbitMQ)
-        response = mq_client.request_reply(
-            exchange='servicios',
-            routing_key=ROUTING_KEYS['validate_cliente'],
-            message={'id_cliente': p.id_cliente}
-        )
-        
-        if response is None:
-            raise HTTPException(status_code=503, detail="Timeout esperando validación de cliente")
-        if not response.get('existe'):
-            raise HTTPException(status_code=400, detail="El cliente no existe en el padrón oficial")
-        
-        # PASO 3: Descontar inventario (a través de RabbitMQ)
-        response = mq_client.request_reply(
-            exchange='servicios',
-            routing_key=ROUTING_KEYS['descontar_inventario'],
-            message={'id_producto': p.id_producto, 'cantidad': p.cantidad}
-        )
-        
-        if response is None:
-            raise HTTPException(status_code=503, detail="Timeout esperando descuento de inventario")
-        if not response.get('exito'):
-            raise HTTPException(status_code=503, detail="Error al descontar inventario")
-        
-        # PASO 4: Persistir pedido localmente
+        # PASO 5: Persistir pedido localmente
         pedidos = leer_pedidos()
         if pedidos and len(pedidos) > 0:
-            siguiente_id = max(int(ped['id_pedido']) for ped in pedidos) + 1
+            siguiente_id = max(ped['id_pedido'] for ped in pedidos) + 1
         else:
             siguiente_id = 1
         
@@ -196,28 +213,4 @@ def crear_pedido(p: PedidoRegistro):
         raise
     except Exception as e:
         print(f"Error en crear_pedido: {e}")
-        raise HTTPException(status_code=503, detail="Error de comunicación con servicios (RabbitMQ)")
-
-
-@app.on_event("startup")
-def startup_event():
-    """Evento de inicio: conectar a RabbitMQ"""
-    try:
-        print("▶ Conectando a RabbitMQ...")
-        mq_client.connect()
-        # Declarar el exchange
-        mq_client.declare_exchange('servicios', exchange_type='direct')
-        print("✓ Servicio de Pedidos iniciado y conectado a RabbitMQ")
-    except Exception as e:
-        print(f"⚠ Advertencia: Error al conectar a RabbitMQ en startup: {e}")
-        print("ℹ El servicio seguirá ejecutándose pero sin soporte de mensajería RabbitMQ")
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Evento de cierre: desconectar de RabbitMQ"""
-    try:
-        mq_client.close()
-        print("✓ Servicio de Pedidos desconectado de RabbitMQ")
-    except Exception as e:
-        print(f"Error al desconectar de RabbitMQ: {e}")
+        raise HTTPException(status_code=503, detail="Error de comunicación con servicios")

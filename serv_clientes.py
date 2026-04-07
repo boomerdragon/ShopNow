@@ -1,19 +1,17 @@
 import csv
 import os
-import json
-import pika
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
-from rabbitmq_client import RabbitMQClient, ROUTING_KEYS
+
 
 app = FastAPI(
     title="Departamento de Clientes",
     description="Servicio encargado de la custodia y registro oficial de los clientes de la empresa. \n\n" \
     "Este servicio actúa como el punto central de integración para la validación de clientes en los procesos de venta y atención al cliente. \n\n" \
-    "Ejecutar en puerto **8010** y asegurarse de que los servicios de Pedidos (8002) y Productos (8001) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión RabbitMQ**: Ahora responde a solicitudes a través de un bus de mensajería.",
-    version="3.0.0 - RabbitMQ",
+    "Ejecutar en puerto **8000** y asegurarse de que los servicios de Pedidos (8002) y Productos (8001) estén activos para su correcto funcionamiento. \n\n" \
+    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    version="2.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
@@ -28,9 +26,6 @@ HEADERS = ["id_cliente", "nombre", "correo", "direccion", "telefono", "activo"]
 if not os.path.exists(FILE_NAME):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(HEADERS)
-
-# Cliente RabbitMQ global
-mq_client = RabbitMQClient(host='localhost', port=5672)
 
 class Cliente(BaseModel):
     id_cliente: int = Field(..., example=101, description="ID numérico único") # type: ignore
@@ -55,8 +50,26 @@ class ClienteUpdate(BaseModel):
     activo: Optional[bool] = Field(None, example=True) # type: ignore
 
 def leer_clientes():
+    """Lee todos los clientes del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        rows = csv.DictReader(f)
+        clientes = []
+        for row in rows:
+            if not row or not row.get('id_cliente'):  # Skip empty rows
+                continue
+            try:
+                cliente = {
+                    'id_cliente': int(row['id_cliente']),
+                    'nombre': row['nombre'],
+                    'correo': row['correo'],
+                    'direccion': row['direccion'],
+                    'telefono': row['telefono'],
+                    'activo': row['activo'].lower() in ('true', '1', 'yes')
+                }
+                clientes.append(cliente)
+            except (ValueError, KeyError):
+                continue  # Skip rows with invalid data
+        return clientes
 
 @app.get(
     "/clientes",
@@ -139,12 +152,14 @@ def registrar_cliente(nuevo: ClienteRegistro):
     
     # Generar ID autoincremental
     if clientes:
-        siguiente_id = max(int(c['id_cliente']) for c in clientes) + 1
+        siguiente_id = max(c['id_cliente'] for c in clientes) + 1
     else:
         siguiente_id = 1
     
     with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow([siguiente_id, nuevo.nombre, nuevo.correo, nuevo.direccion, nuevo.telefono, nuevo.activo])
+        # Convert boolean to string for CSV storage
+        activo_str = "True" if nuevo.activo else "False"
+        csv.writer(f).writerow([siguiente_id, nuevo.nombre, nuevo.correo, nuevo.direccion, nuevo.telefono, activo_str])
     return {"mensaje": "Cliente registrado en el archivo CSV", "id_cliente": siguiente_id, "status": "success"}
 
 @app.delete(
@@ -192,18 +207,27 @@ def eliminar_cliente(id_cliente: int):
         HTTPException: Con status 404 si el cliente no existe.
     """
     clientes = leer_clientes()
-    cliente = next((c for c in clientes if int(c['id_cliente']) == id_cliente), None)
+    cliente = next((c for c in clientes if c['id_cliente'] == id_cliente), None)
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
-    # clientes.remove(cliente)
-    cliente['activo'] = "False"  # Marcar como inactivo en lugar de eliminar físicamente
+    # Marcar como inactivo en lugar de eliminar físicamente
+    cliente['activo'] = False
     
-    # Reescribir el archivo CSV sin el cliente eliminado
+    # Reescribir el archivo CSV con los cambios
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
-        writer.writerows(clientes)
+        # Convert boolean to string for CSV storage
+        for item_row in clientes:
+            writer.writerow({
+                'id_cliente': item_row['id_cliente'],
+                'nombre': item_row['nombre'],
+                'correo': item_row['correo'],
+                'direccion': item_row['direccion'],
+                'telefono': item_row['telefono'],
+                'activo': "True" if item_row['activo'] else "False"
+            })
     
     return {"mensaje": "Cliente eliminado (inactivado) exitosamente", "status": "success"}
 
@@ -262,7 +286,7 @@ def actualizar_cliente_parcial(id_cliente: int, update: ClienteUpdate):
         HTTPException: Con status 404 si el cliente no existe.
     """
     clientes = leer_clientes()
-    cliente = next((c for c in clientes if int(c['id_cliente']) == id_cliente), None)
+    cliente = next((c for c in clientes if c['id_cliente'] == id_cliente), None)
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
@@ -282,84 +306,16 @@ def actualizar_cliente_parcial(id_cliente: int, update: ClienteUpdate):
     with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
-        writer.writerows(clientes)
+        # Convert boolean to string for CSV storage
+        for item_row in clientes:
+            writer.writerow({
+                'id_cliente': item_row['id_cliente'],
+                'nombre': item_row['nombre'],
+                'correo': item_row['correo'],
+                'direccion': item_row['direccion'],
+                'telefono': item_row['telefono'],
+                'activo': "True" if item_row['activo'] else "False"
+            })
     
     return {"mensaje": "Cliente actualizado parcialmente exitosamente", "status": "success"}
 
-
-# ============================================================================
-# MANEJADORES DE MENSAJES RABBITMQ
-# ============================================================================
-
-def handle_cliente_message(ch, method, properties, body):
-    """
-    Maneja mensajes de solicitud sobre clientes desde RabbitMQ.
-    
-    Operaciones soportadas:
-    - validate_cliente: Verifica si un cliente existe
-    """
-    try:
-        message = json.loads(body)
-        print(f"📨 Mensaje recibido en Clientes: {message}")
-        
-        # Obtener la información de respuesta
-        reply_to = properties.reply_to
-        correlation_id = properties.correlation_id
-        
-        # Procesar la solicitud
-        id_cliente = message.get('id_cliente')
-        clientes = leer_clientes()
-        existe = any(int(c['id_cliente']) == id_cliente for c in clientes)
-        
-        response = {'existe': existe, 'id_cliente': id_cliente}
-        
-        # Enviar respuesta
-        mq_client.channel.basic_publish(
-            exchange='',
-            routing_key=reply_to,
-            body=json.dumps(response),
-            properties=pika.BasicProperties(
-                correlation_id=correlation_id
-            )
-        )
-        
-        ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"✓ Respuesta enviada: {response}")
-        
-    except Exception as e:
-        print(f"Error procesando mensaje de clientes: {e}")
-        ch.basic_nack(delivery_tag=method.delivery_tag)
-
-
-@app.on_event("startup")
-def startup_event():
-    """Evento de inicio: conectar a RabbitMQ y iniciar consumidor"""
-    try:
-        import pika
-        print("▶ Conectando a RabbitMQ...")
-        mq_client.connect()
-        
-        # Declarar exchange
-        mq_client.declare_exchange('servicios', exchange_type='direct')
-        
-        # Declarar y vincular cola para solicitudes de validación
-        mq_client.declare_queue('clientes_requests')
-        mq_client.bind_queue('clientes_requests', 'servicios', ROUTING_KEYS['validate_cliente'])
-        
-        # Iniciar consumidor en thread separado
-        mq_client.start_consumer_thread('clientes_requests', handle_cliente_message)
-        
-        print("✓ Servicio de Clientes iniciado y escuchando en RabbitMQ")
-    except Exception as e:
-        print(f"⚠ Advertencia: Error al conectar a RabbitMQ en startup: {e}")
-        print("ℹ El servicio seguirá ejecutándose pero sin soporte de mensajería RabbitMQ")
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Evento de cierre: desconectar de RabbitMQ"""
-    try:
-        mq_client.close()
-        print("✓ Servicio de Clientes desconectado de RabbitMQ")
-    except Exception as e:
-        print(f"Error al desconectar de RabbitMQ: {e}")
