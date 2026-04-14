@@ -1,0 +1,23 @@
+{
+  "name": "shopnow/productos-php",
+  "description": "ShopNow Productos Service - PHP Implementation using Fat-Free Framework",
+  "type": "project",
+  "require": {
+    "php": ">=7.4",
+    "bcosca/fatfree-core": "^3.8",
+    "vlucas/phpdotenv": "^5.4",
+    "firebase/php-jwt": "^6.4"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "ShopNow\\": "src/"
+    }
+  },
+  "scripts": {
+    "start": "php -S localhost:8081 -t public",
+    "test": "phpunit"
+  }
+}
