@@ -1,8 +1,9 @@
 import csv
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List
+from auth import verify_token, create_access_token
 
 
 app = FastAPI(
@@ -30,6 +31,10 @@ class MovimientoInventario(BaseModel):
     id_producto: int = Field(..., example=1) # type: ignore
     cantidad: int = Field(..., gt=0, example=5) # type: ignore
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., example="admin") # type: ignore
+    password: str = Field(..., example="password123") # type: ignore
+
 def leer_inventario():
     """Lee todo el inventario del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
@@ -47,6 +52,47 @@ def leer_inventario():
             except (ValueError, KeyError):
                 continue  # Skip rows with invalid data
         return items
+
+@app.post(
+    "/login",
+    tags=["Autenticación"],
+    summary="Obtener token JWT",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Token obtenido exitosamente",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Credenciales inválidas"
+        }
+    }
+)
+def login(credentials: LoginRequest):
+    """Autentica un usuario y retorna un token JWT.
+    
+    Utiliza credenciales de demostración para esta versión.
+    En producción, integrar con una base de datos de usuarios.
+    
+    Args:
+        credentials: username y password
+    
+    Returns:
+        dict: Token JWT para usar en headers de autenticación
+    """
+    # Credenciales de demostración (cambiar en producción)
+    if credentials.username != "admin" or credentials.password != "password123":
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    
+    token = create_access_token(data={"sub": credentials.username, "service": "inventario"})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.get(
     "/inventario",
@@ -73,7 +119,7 @@ def leer_inventario():
         }
     }
 )
-def obtener_inventario_completo():
+def obtener_inventario_completo(token: dict = Depends(verify_token)):
     """Retorna el inventario completo de todos los productos.
     
     Este endpoint obtiene la lista completa del stock disponible de todos
@@ -113,7 +159,7 @@ def obtener_inventario_completo():
         }
     }
 )
-def consultar_stock(id_producto: int):
+def consultar_stock(id_producto: int, token: dict = Depends(verify_token)):
     """Consulta la cantidad disponible de un producto específico.
     
     Busca y retorna el stock actual de un producto por su ID único.
@@ -157,7 +203,7 @@ def consultar_stock(id_producto: int):
         }
     }
 )
-def registrar_inventario(mov: MovimientoInventario):
+def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify_token)):
     """Registra un nuevo producto en el inventario.
     
     Crea un nuevo registro de inventario para un producto específico con
@@ -211,7 +257,7 @@ def registrar_inventario(mov: MovimientoInventario):
         }
     }
 )
-def descontar_stock(mov: MovimientoInventario):
+def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)):
     """Descuenta stock del inventario tras una venta exitosa.
     
     Reduce la cantidad disponible de un producto en el inventario.
@@ -279,7 +325,7 @@ def descontar_stock(mov: MovimientoInventario):
         }
     }
 )
-def agregar_stock(mov: MovimientoInventario):
+def agregar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)):
     """Agrega stock al inventario de un producto.
     
     Incrementa la cantidad disponible de un producto en el inventario.

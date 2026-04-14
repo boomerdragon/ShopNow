@@ -1,10 +1,13 @@
 import csv
 import os
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List
+from auth import verify_token, create_access_token
 
+# Generar un token de servicio para llamadas internas entre servicios
+SERVICE_TOKEN = create_access_token(data={"sub": "pedidos-service", "service": "pedidos"})
 
 app = FastAPI(
     title="Coordinador de Pedidos",
@@ -41,6 +44,10 @@ class PedidoRegistro(BaseModel):
     id_producto: int = Field(..., example=1) # type: ignore
     cantidad: int = Field(..., gt=0, example=2) # type: ignore
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., example="admin") # type: ignore
+    password: str = Field(..., example="password123") # type: ignore
+
 def leer_pedidos():
     """Lee todos los pedidos del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
@@ -60,6 +67,47 @@ def leer_pedidos():
             except (ValueError, KeyError):
                 continue  # Skip rows with invalid data
         return pedidos
+
+@app.post(
+    "/login",
+    tags=["Autenticación"],
+    summary="Obtener token JWT",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Token obtenido exitosamente",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Credenciales inválidas"
+        }
+    }
+)
+def login(credentials: LoginRequest):
+    """Autentica un usuario y retorna un token JWT.
+    
+    Utiliza credenciales de demostración para esta versión.
+    En producción, integrar con una base de datos de usuarios.
+    
+    Args:
+        credentials: username y password
+    
+    Returns:
+        dict: Token JWT para usar en headers de autenticación
+    """
+    # Credenciales de demostración (cambiar en producción)
+    if credentials.username != "admin" or credentials.password != "password123":
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    
+    token = create_access_token(data={"sub": credentials.username, "service": "pedidos"})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.get(
     "/pedidos",
@@ -85,7 +133,7 @@ def leer_pedidos():
         }
     }
 )
-def obtener_pedidos():
+def obtener_pedidos(token: dict = Depends(verify_token)):
     """Retorna el registro oficial de pedidos desde el archivo CSV.
     
     Este endpoint obtiene la lista completa de todos los pedidos registrados
@@ -122,7 +170,7 @@ def obtener_pedidos():
         }
     }
 )
-def crear_pedido(p: PedidoRegistro):
+def crear_pedido(p: PedidoRegistro, token: dict = Depends(verify_token)):
     """Crea un nuevo pedido con validación integrada a través de HTTP.
     
     Ejecuta el siguiente flujo de validación usando llamadas HTTP:
@@ -147,7 +195,7 @@ def crear_pedido(p: PedidoRegistro):
     try:
         # PASO 1: Validar que el producto existe
         try:
-            response = requests.get(f"{PRODUCTOS_URL}/productos", timeout=5)
+            response = requests.get(f"{PRODUCTOS_URL}/productos", timeout=5, headers={"Authorization": f"Bearer {SERVICE_TOKEN}"})
             productos = response.json()
             existe_producto = any(prod['id_producto'] == p.id_producto for prod in productos)
             if not existe_producto:
@@ -158,7 +206,7 @@ def crear_pedido(p: PedidoRegistro):
         
         # PASO 2: Validar que hay inventario suficiente
         try:
-            response = requests.get(f"{INVENTARIO_URL}/inventario/{p.id_producto}", timeout=5)
+            response = requests.get(f"{INVENTARIO_URL}/inventario/{p.id_producto}", timeout=5, headers={"Authorization": f"Bearer {SERVICE_TOKEN}"})
             if response.status_code == 404:
                 raise HTTPException(status_code=400, detail="Producto sin registro de inventario")
             inventario = response.json()
@@ -173,7 +221,7 @@ def crear_pedido(p: PedidoRegistro):
         
         # PASO 3: Validar que el cliente existe y está activo
         try:
-            response = requests.get(f"{CLIENTES_URL}/clientes", timeout=5)
+            response = requests.get(f"{CLIENTES_URL}/clientes", timeout=5, headers={"Authorization": f"Bearer {SERVICE_TOKEN}"})
             clientes = response.json()
             cliente = next((cli for cli in clientes if cli['id_cliente'] == p.id_cliente), None)
             if not cliente:
@@ -191,7 +239,8 @@ def crear_pedido(p: PedidoRegistro):
             response = requests.post(
                 f"{INVENTARIO_URL}/inventario/descontar",
                 json={"id_producto": p.id_producto, "cantidad": p.cantidad},
-                timeout=5
+                timeout=5,
+                headers={"Authorization": f"Bearer {SERVICE_TOKEN}"}
             )
             if response.status_code != 200:
                 raise HTTPException(status_code=503, detail="Error al descontar inventario")

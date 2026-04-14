@@ -1,8 +1,9 @@
 import csv
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
+from auth import verify_token, create_access_token
 
 
 app = FastAPI(
@@ -49,6 +50,10 @@ class ClienteUpdate(BaseModel):
     telefono: Optional[str] = Field(None, min_length=10, max_length=10, example="4421234567") # type: ignore
     activo: Optional[bool] = Field(None, example=True) # type: ignore
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., example="admin") # type: ignore
+    password: str = Field(..., example="password123") # type: ignore
+
 def leer_clientes():
     """Lee todos los clientes del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
@@ -70,6 +75,47 @@ def leer_clientes():
             except (ValueError, KeyError):
                 continue  # Skip rows with invalid data
         return clientes
+
+@app.post(
+    "/login",
+    tags=["Autenticación"],
+    summary="Obtener token JWT",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Token obtenido exitosamente",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Credenciales inválidas"
+        }
+    }
+)
+def login(credentials: LoginRequest):
+    """Autentica un usuario y retorna un token JWT.
+    
+    Utiliza credenciales de demostración para esta versión.
+    En producción, integrar con una base de datos de usuarios.
+    
+    Args:
+        credentials: username y password
+    
+    Returns:
+        dict: Token JWT para usar en headers de autenticación
+    """
+    # Credenciales de demostración (cambiar en producción)
+    if credentials.username != "admin" or credentials.password != "password123":
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    
+    token = create_access_token(data={"sub": credentials.username, "service": "clientes"})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.get(
     "/clientes",
@@ -97,7 +143,7 @@ def leer_clientes():
         }
     }
 )
-def obtener_clientes():
+def obtener_clientes(token: dict = Depends(verify_token)):
     """Retorna el padrón oficial de clientes desde el archivo CSV.
     
     Este endpoint obtiene la lista completa de todos los clientes registrados
@@ -130,7 +176,7 @@ def obtener_clientes():
         }
     }
 )
-def registrar_cliente(nuevo: ClienteRegistro):
+def registrar_cliente(nuevo: ClienteRegistro, token: dict = Depends(verify_token)):
     """Registra un nuevo cliente en la base de datos.
     
     Crea un nuevo cliente con el siguiente flujo:
@@ -191,7 +237,7 @@ def registrar_cliente(nuevo: ClienteRegistro):
         }
     }
 )
-def eliminar_cliente(id_cliente: int):
+def eliminar_cliente(id_cliente: int, token: dict = Depends(verify_token)):
     """Elimina un cliente existente de la base de datos.
     
     Marca un cliente como inactivo por su ID único. No se elimina físicamente 
@@ -263,7 +309,7 @@ def eliminar_cliente(id_cliente: int):
         }
     }
 )
-def actualizar_cliente_parcial(id_cliente: int, update: ClienteUpdate):
+def actualizar_cliente_parcial(id_cliente: int, update: ClienteUpdate, token: dict = Depends(verify_token)):
     """Actualiza parcialmente un cliente existente.
     
     Permite actualizar uno o más campos de un cliente sin necesidad

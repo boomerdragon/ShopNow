@@ -1,8 +1,9 @@
 import csv
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
+from auth import verify_token, create_access_token
 
 
 app = FastAPI(
@@ -40,6 +41,10 @@ class ProductoUpdate(BaseModel):
     precio: Optional[float] = Field(None, gt=0, example=15000.0) # type: ignore
     activo: Optional[bool] = Field(None, example=True) # type: ignore
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., example="admin") # type: ignore
+    password: str = Field(..., example="password123") # type: ignore
+
 def leer_productos():
     """Lee todos los productos del archivo CSV con conversión de tipos correcta."""
     with open(FILE_NAME, "r", encoding="utf-8") as f:
@@ -59,6 +64,47 @@ def leer_productos():
             except (ValueError, KeyError):
                 continue  # Skip rows with invalid data
         return productos
+
+@app.post(
+    "/login",
+    tags=["Autenticación"],
+    summary="Obtener token JWT",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Token obtenido exitosamente",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Credenciales inválidas"
+        }
+    }
+)
+def login(credentials: LoginRequest):
+    """Autentica un usuario y retorna un token JWT.
+    
+    Utiliza credenciales de demostración para esta versión.
+    En producción, integrar con una base de datos de usuarios.
+    
+    Args:
+        credentials: username y password
+    
+    Returns:
+        dict: Token JWT para usar en headers de autenticación
+    """
+    # Credenciales de demostración (cambiar en producción)
+    if credentials.username != "admin" or credentials.password != "password123":
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    
+    token = create_access_token(data={"sub": credentials.username, "service": "productos"})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.get(
     "/productos",
@@ -84,7 +130,7 @@ def leer_productos():
         }
     }
 )
-def obtener_productos():
+def obtener_productos(token: dict = Depends(verify_token)):
     """**Retorna el catálogo oficial de productos desde el archivo CSV.**
     
     Este endpoint obtiene la lista completa de todos los productos registrados
@@ -120,7 +166,7 @@ def obtener_productos():
         }
     }
 )
-def registrar_producto(nuevo: ProductoRegistro):
+def registrar_producto(nuevo: ProductoRegistro, token: dict = Depends(verify_token)):
     """**Registra un nuevo producto en el catálogo.**
     
     Crea un nuevo producto con el siguiente flujo:
@@ -183,7 +229,7 @@ def registrar_producto(nuevo: ProductoRegistro):
         }
     }
 )
-def eliminar_producto(id_producto: int):
+def eliminar_producto(id_producto: int, token: dict = Depends(verify_token)):
     """**Elimina un producto existente del catálogo.**
     
     Busca y marca un producto como inactivo por su ID único. No se elimina
@@ -258,7 +304,7 @@ def eliminar_producto(id_producto: int):
         }
     }
 )
-def actualizar_producto_parcial(id_producto: int, update: ProductoUpdate):
+def actualizar_producto_parcial(id_producto: int, update: ProductoUpdate, token: dict = Depends(verify_token)):
     """**Actualiza parcialmente un producto existente del catálogo.**
     
     Permite actualizar uno o más campos de un producto sin necesidad
