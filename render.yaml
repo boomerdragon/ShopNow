@@ -62,10 +62,9 @@ services:
   # Productos PHP Service (PHP-based Product Service)
   - type: web
     name: shopnow-productos-php
-    runtime: php
+    runtime: docker
     plan: free
-    buildCommand: cd serv_productos_php && composer install
-    startCommand: cd serv_productos_php && php -S 0.0.0.0:$PORT -t public
+    dockerfilePath: serv_productos_php/Dockerfile
     envVars:
       - key: PORT
         value: 8081
