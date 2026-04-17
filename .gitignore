@@ -1,2 +1,52 @@
 __pycache__/
 .venv/
+
+# Environment and Configuration
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# CSV Data Files (local development)
+*.csv
+!serv_*/\*.csv.example
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test-results/
+
+# IDE specific
+*.iml
+
+# Railway
+.railway/
+railway-database/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

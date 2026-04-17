@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: shopnow-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shopnow-network
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  # Python Services
+  clientes:
+    build:
+      context: ./serv_clientes
+      dockerfile: Dockerfile
+    container_name: shopnow-clientes
+    ports:
+      - "8000:8000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+    networks:
+      - shopnow-network
+    volumes:
+      - ./serv_clientes:/app
+    command: uvicorn serv_clientes:app --host 0.0.0.0 --port 8000 --reload
+
+  productos:
+    build:
+      context: ./serv_productos
+      dockerfile: Dockerfile
+    container_name: shopnow-productos
+    ports:
+      - "8001:8001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+    networks:
+      - shopnow-network
+    volumes:
+      - ./serv_productos:/app
+    command: uvicorn serv_productos:app --host 0.0.0.0 --port 8001 --reload
+
+  pedidos:
+    build:
+      context: ./serv_pedidos
+      dockerfile: Dockerfile
+    container_name: shopnow-pedidos
+    ports:
+      - "8002:8002"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+    networks:
+      - shopnow-network
+    volumes:
+      - ./serv_pedidos:/app
+    command: uvicorn serv_pedidos:app --host 0.0.0.0 --port 8002 --reload
+
+  inventario:
+    build:
+      context: ./serv_inventario
+      dockerfile: Dockerfile
+    container_name: shopnow-inventario
+    ports:
+      - "8003:8003"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+    networks:
+      - shopnow-network
+    volumes:
+      - ./serv_inventario:/app
+    command: uvicorn serv_inventario:app --host 0.0.0.0 --port 8003 --reload
+
+  # PHP Alternative (Optional - disable by setting profiles: ["php"])
+  productos-php:
+    build:
+      context: ./serv_productos_php
+      dockerfile: Dockerfile
+    container_name: shopnow-productos-php
+    ports:
+      - "8081:8081"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+    networks:
+      - shopnow-network
+    volumes:
+      - ./serv_productos_php:/app
+    profiles: ["php"]
+
+networks:
+  shopnow-network:
+    driver: bridge
+
+volumes:
+  rabbitmq-data:

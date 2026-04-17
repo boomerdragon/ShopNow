@@ -1,0 +1,134 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "startCommand": "",
+    "restartPolicyMaxRetries": 5
+  },
+  "env": {
+    "RABBITMQ_HOST": {
+      "description": "RabbitMQ hostname (use container name in docker-compose)",
+      "value": "rabbitmq"
+    },
+    "RABBITMQ_PORT": {
+      "description": "RabbitMQ port",
+      "value": "5672"
+    },
+    "RABBITMQ_USER": {
+      "description": "RabbitMQ username",
+      "value": "guest"
+    },
+    "RABBITMQ_PASS": {
+      "description": "RabbitMQ password",
+      "value": "guest",
+      "isSecret": true
+    },
+    "SECRET_KEY": {
+      "description": "JWT signing key - CHANGE IN PRODUCTION",
+      "value": "shopnow-secret-key-2024-change-in-production",
+      "isSecret": true
+    },
+    "ALGORITHM": {
+      "description": "JWT algorithm",
+      "value": "HS256"
+    },
+    "EXPIRATION_MINUTES": {
+      "description": "JWT token expiration in minutes",
+      "value": "480"
+    }
+  },
+  "services": {
+    "rabbitmq": {
+      "image": "rabbitmq:3.12-management",
+      "ports": [5672, 15672],
+      "environment": {
+        "RABBITMQ_DEFAULT_USER": "guest",
+        "RABBITMQ_DEFAULT_PASS": "guest"
+      },
+      "healthCheck": {
+        "test": ["CMD", "rabbitmq-diagnostics", "-q", "ping"],
+        "interval": 10,
+        "timeout": 5,
+        "retries": 5,
+        "startPeriod": 30
+      },
+      "volumes": {
+        "rabbitmq-data": "/var/lib/rabbitmq"
+      }
+    },
+    "clientes": {
+      "build": {
+        "context": ".",
+        "dockerfile": "serv_clientes/Dockerfile"
+      },
+      "ports": [8000],
+      "depends_on": ["rabbitmq"],
+      "environment": {
+        "RABBITMQ_HOST": "rabbitmq",
+        "RABBITMQ_PORT": "5672",
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": "guest"
+      }
+    },
+    "productos": {
+      "build": {
+        "context": ".",
+        "dockerfile": "serv_productos/Dockerfile"
+      },
+      "ports": [8001],
+      "depends_on": ["rabbitmq"],
+      "environment": {
+        "RABBITMQ_HOST": "rabbitmq",
+        "RABBITMQ_PORT": "5672",
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": "guest"
+      }
+    },
+    "pedidos": {
+      "build": {
+        "context": ".",
+        "dockerfile": "serv_pedidos/Dockerfile"
+      },
+      "ports": [8002],
+      "depends_on": ["rabbitmq"],
+      "environment": {
+        "RABBITMQ_HOST": "rabbitmq",
+        "RABBITMQ_PORT": "5672",
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": "guest"
+      }
+    },
+    "inventario": {
+      "build": {
+        "context": ".",
+        "dockerfile": "serv_inventario/Dockerfile"
+      },
+      "ports": [8003],
+      "depends_on": ["rabbitmq"],
+      "environment": {
+        "RABBITMQ_HOST": "rabbitmq",
+        "RABBITMQ_PORT": "5672",
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": "guest"
+      }
+    },
+    "productos-php": {
+      "build": {
+        "context": ".",
+        "dockerfile": "serv_productos_php/Dockerfile"
+      },
+      "ports": [8081],
+      "depends_on": ["rabbitmq"],
+      "environment": {
+        "RABBITMQ_HOST": "rabbitmq",
+        "RABBITMQ_PORT": "5672",
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": "guest"
+      },
+      "enabled": false
+    }
+  }
+}
