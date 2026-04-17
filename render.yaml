@@ -1,0 +1,73 @@
+services:
+  # Clientes Service (Customer Management)
+  - type: web
+    name: shopnow-clientes
+    runtime: python
+    plan: free
+    buildCommand: pip install -r serv_clientes/requirements.txt
+    startCommand: cd serv_clientes && uvicorn serv_clientes:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: SERVICE_NAME
+        value: clientes
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+  # Productos Service (Product Catalog)
+  - type: web
+    name: shopnow-productos
+    runtime: python
+    plan: free
+    buildCommand: pip install -r serv_productos/requirements.txt
+    startCommand: cd serv_productos && uvicorn serv_productos:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8001
+      - key: SERVICE_NAME
+        value: productos
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+  # Pedidos Service (Order Processing)
+  - type: web
+    name: shopnow-pedidos
+    runtime: python
+    plan: free
+    buildCommand: pip install -r serv_pedidos/requirements.txt
+    startCommand: cd serv_pedidos && uvicorn serv_pedidos:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8002
+      - key: SERVICE_NAME
+        value: pedidos
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+  # Inventario Service (Inventory Management)
+  - type: web
+    name: shopnow-inventario
+    runtime: python
+    plan: free
+    buildCommand: pip install -r serv_inventario/requirements.txt
+    startCommand: cd serv_inventario && uvicorn serv_inventario:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8003
+      - key: SERVICE_NAME
+        value: inventario
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+  # Productos PHP Service (PHP-based Product Service)
+  - type: web
+    name: shopnow-productos-php
+    runtime: php
+    plan: free
+    buildCommand: cd serv_productos_php && composer install
+    startCommand: cd serv_productos_php && php -S 0.0.0.0:$PORT -t public
+    envVars:
+      - key: PORT
+        value: 8081
+      - key: SERVICE_NAME
+        value: productos-php
