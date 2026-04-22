@@ -3,4 +3,9 @@ uvicorn
 pydantic
 email-validator
 requests
+<<<<<<< HEAD
 jwt
+=======
+pika
+PyJWT
+>>>>>>> 111c857 (Added "requirements.txt" for each microservice,)

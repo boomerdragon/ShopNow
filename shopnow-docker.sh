@@ -79,7 +79,7 @@ ${GREEN}COMMANDS:${NC}
     rebuild <service>   Rebuild specific service (no cache)
     rebuild-all         Rebuild all services (no cache)
     push-images         Push images to registry (requires REGISTRY env var)
-    compose <args>      Run docker-compose with additional arguments
+    compose <args>      Run docker compose with additional arguments
 
     ${YELLOW}Network & Volumes${NC}
     network-inspect     Inspect shopnow-network details
@@ -118,11 +118,11 @@ EOF
 cmd_build() {
     if [ -n "$1" ]; then
         print_header "Building $1 image..."
-        docker-compose build "$1"
+        docker compose build "$1"
         print_success "$1 image built successfully"
     else
         print_header "Building all images..."
-        docker-compose build
+        docker compose build
         print_success "All images built successfully"
     fi
 }
@@ -130,7 +130,7 @@ cmd_build() {
 # Start commands
 cmd_up() {
     print_header "Starting all services..."
-    docker-compose up -d
+    docker compose up -d
     print_success "All services started"
     sleep 3
     cmd_ps
@@ -139,19 +139,19 @@ cmd_up() {
 
 cmd_up_detach() {
     print_header "Starting all services (detached)..."
-    docker-compose up -d --build
+    docker compose up -d --build
     print_success "All services started in background"
 }
 
 cmd_up_prod() {
     print_header "Starting services in production mode (no --reload)..."
-    docker-compose -f docker-compose.yml up -d
+    docker compose -f docker compose.yml up -d
     print_success "Services started in production mode"
 }
 
 cmd_up_with_php() {
     print_header "Starting all services including PHP variant..."
-    docker-compose --profile php up -d
+    docker compose --profile php up -d
     print_success "All services started (including PHP)"
     sleep 3
     cmd_ps
@@ -160,24 +160,24 @@ cmd_up_with_php() {
 # Stop commands
 cmd_down() {
     print_header "Stopping and removing containers..."
-    docker-compose down
+    docker compose down
     print_success "All services stopped and removed"
 }
 
 cmd_stop() {
     print_header "Stopping containers (keeping volumes)..."
-    docker-compose stop
+    docker compose stop
     print_success "All services stopped"
 }
 
 cmd_restart() {
     if [ -n "$1" ]; then
         print_header "Restarting $1..."
-        docker-compose restart "$1"
+        docker compose restart "$1"
         print_success "$1 restarted"
     else
         print_header "Restarting all services..."
-        docker-compose restart
+        docker compose restart
         print_success "All services restarted"
     fi
 }
@@ -185,7 +185,7 @@ cmd_restart() {
 # Clean commands
 cmd_clean() {
     print_header "Cleaning up (removing containers and volumes)..."
-    docker-compose down -v
+    docker compose down -v
     print_success "Cleanup complete"
 }
 
@@ -195,7 +195,7 @@ cmd_clean_all() {
     read -p "Continue? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker-compose down -v --remove-orphans
+        docker compose down -v --remove-orphans
         docker image prune -a --filter "label!=keep" -f
         docker network prune -f
         docker volume prune -f
@@ -208,23 +208,23 @@ cmd_clean_all() {
 # Status & logs commands
 cmd_ps() {
     print_header "Container Status"
-    docker-compose ps
+    docker compose ps
 }
 
 cmd_logs() {
     if [ -n "$1" ]; then
-        docker-compose logs -f "$1"
+        docker compose logs -f "$1"
     else
-        docker-compose logs -f
+        docker compose logs -f
     fi
 }
 
 cmd_status() {
     print_header "Detailed Service Status"
-    docker-compose ps
+    docker compose ps
     echo ""
     print_info "RabbitMQ Status:"
-    docker-compose exec -T rabbitmq rabbitmq-diagnostics -q ping && print_success "RabbitMQ is healthy" || print_error "RabbitMQ is not responding"
+    docker compose exec -T rabbitmq rabbitmq-diagnostics -q ping && print_success "RabbitMQ is healthy" || print_error "RabbitMQ is not responding"
 }
 
 cmd_health() {
@@ -232,12 +232,12 @@ cmd_health() {
     services=("clientes" "productos" "pedidos" "inventario" "rabbitmq")
     
     for service in "${services[@]}"; do
-        if docker-compose ps "$service" | grep -q "Up"; then
+        if docker compose ps "$service" | grep -q "Up"; then
             print_success "$service is running"
             # Try to check actual health
             case $service in
                 rabbitmq)
-                    if docker-compose exec -T rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
+                    if docker compose exec -T rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
                         print_success "  └─ RabbitMQ is responding"
                     fi
                     ;;
@@ -250,7 +250,7 @@ cmd_health() {
                         pedidos) port="8002" ;;
                         inventario) port="8003" ;;
                     esac
-                    if [ -n "$port" ] && docker-compose exec -T "$service" bash -c "echo > /dev/tcp/localhost/$port" >/dev/null 2>&1; then
+                    if [ -n "$port" ] && docker compose exec -T "$service" bash -c "echo > /dev/tcp/localhost/$port" >/dev/null 2>&1; then
                         print_success "  └─ Port $port is listening"
                     fi
                     ;;
@@ -268,7 +268,7 @@ cmd_shell() {
         exit 1
     fi
     print_info "Entering $1 container shell..."
-    docker-compose exec "$1" bash
+    docker compose exec "$1" bash
 }
 
 cmd_exec() {
@@ -277,7 +277,7 @@ cmd_exec() {
         exit 1
     fi
     shift
-    docker-compose exec "$1" bash -c "$@"
+    docker compose exec "$1" bash -c "$@"
 }
 
 cmd_test_connectivity() {
@@ -289,7 +289,7 @@ cmd_test_connectivity() {
         print_info "Testing from $service container:"
         for target in "${services[@]}"; do
             if [ "$service" != "$target" ]; then
-                if docker-compose exec -T "$service" bash -c "nc -zv $target 5672 >/dev/null 2>&1 || nc -zv $target 8000 >/dev/null 2>&1 || ping -c 1 $target >/dev/null 2>&1"; then
+                if docker compose exec -T "$service" bash -c "nc -zv $target 5672 >/dev/null 2>&1 || nc -zv $target 8000 >/dev/null 2>&1 || ping -c 1 $target >/dev/null 2>&1"; then
                     print_success "  ✓ Can reach $target"
                 else
                     print_error "  ✗ Cannot reach $target"
@@ -348,13 +348,13 @@ cmd_rebuild() {
         exit 1
     fi
     print_header "Rebuilding $1 (no cache)..."
-    docker-compose build --no-cache "$1"
+    docker compose build --no-cache "$1"
     print_success "$1 rebuilt"
 }
 
 cmd_rebuild_all() {
     print_header "Rebuilding all services (no cache)..."
-    docker-compose build --no-cache
+    docker compose build --no-cache
     print_success "All services rebuilt"
 }
 
@@ -364,12 +364,12 @@ cmd_push_images() {
         exit 1
     fi
     print_header "Pushing images to $REGISTRY..."
-    docker-compose push
+    docker compose push
     print_success "Images pushed successfully"
 }
 
 cmd_compose() {
-    docker-compose "$@"
+    docker compose "$@"
 }
 
 # Network commands
@@ -415,7 +415,7 @@ cmd_docker_prune() {
 cmd_version() {
     print_header "Docker Version Information"
     docker --version
-    docker-compose --version
+    docker compose --version
 }
 
 # Main command handler

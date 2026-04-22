@@ -15,6 +15,8 @@ MAGENTA='\033[0;35m'
 WHITE='\033[1;37m'
 NC='\033[0m'  # No Color
 
+STARTDIR=$(pwd) # Directorio de inicio
+
 # ============================================================================
 # FUNCIÓN: Mostrar ayuda
 # ============================================================================
@@ -43,10 +45,10 @@ iniciar_servicios() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     
-
-    
     # Iniciar Clientes
     echo -e "${YELLOW}▶ Iniciando Clientes (puerto 8000)${NC}"
+    echo $STARTDIR
+    cd $STARTDIR/serv_clientes
     uvicorn serv_clientes:app --port 8000 --reload > /dev/null 2>&1 &
     CLIENTE_PID=$!
     echo -e "  ${GREEN}✓ PID: $CLIENTE_PID${NC}"
@@ -55,6 +57,8 @@ iniciar_servicios() {
     
     # Iniciar Productos
     echo -e "${YELLOW}▶ Iniciando Productos (puerto 8001)${NC}"
+    echo $STARTDIR
+    cd $STARTDIR/serv_productos
     uvicorn serv_productos:app --port 8001 --reload > /dev/null 2>&1 &
     PRODUCTO_PID=$!
     echo -e "  ${GREEN}✓ PID: $PRODUCTO_PID${NC}"
@@ -63,6 +67,8 @@ iniciar_servicios() {
     
     # Iniciar Pedidos
     echo -e "${YELLOW}▶ Iniciando Pedidos (puerto 8002)${NC}"
+    echo $STARTDIR
+    cd $STARTDIR/serv_pedidos
     uvicorn serv_pedidos:app --port 8002 --reload > /dev/null 2>&1 &
     PEDIDO_PID=$!
     echo -e "  ${GREEN}✓ PID: $PEDIDO_PID${NC}"
@@ -71,6 +77,8 @@ iniciar_servicios() {
     
     # Iniciar Inventario
     echo -e "${YELLOW}▶ Iniciando Inventario (puerto 8003)${NC}"
+    echo $STARTDIR
+    cd $STARTDIR/serv_inventario
     uvicorn serv_inventario:app --port 8003 --reload > /dev/null 2>&1 &
     INVENTARIO_PID=$!
     echo -e "  ${GREEN}✓ PID: $INVENTARIO_PID${NC}"
