@@ -1,0 +1,22 @@
+id_producto,descripcion,precio,activo
+1,Asada,700,False
+2,Barbacoa,750,True
+3,Carnitas,600,True
+4,Pollo,500,True
+5,Birria,550,True
+6,Chorizo,650,True
+7,Cochinita,450,True
+8,Mariscos,800,True
+9,Adobada,700,True
+10,Suadero,600,True
+11,"Laptop Dell XPS",1200,True
+12,"Laptop Gaming",999.99,True
+13,"Test Laptop",999.99,True
+14,"Gaming Monitor",299.99,True
+15,"Wireless Keyboard",49.99,True
+16,"USB Mouse",25.99,True
+17,"4K Monitor",399,True
+18,"USB-C Cable",19.99,True
+19,"4K Gaming Monitor 144Hz",599.99,True
+20,"Producto X",99.99,True
+21,"Producto PHP",99.99,False

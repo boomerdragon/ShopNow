@@ -21,7 +21,7 @@ docker-compose.override.yml
 .dockerignore
 
 # CSV Data Files (local development)
-*.csv
+# *.csv # Uncomment this line if you want to ignore all CSV files
 !serv_*/\*.csv.example
 
 # Logs
