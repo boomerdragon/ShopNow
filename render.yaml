@@ -64,7 +64,8 @@ services:
     name: shopnow-productos-php
     runtime: docker
     plan: free
-    dockerfilePath: serv_productos_php/Dockerfile
+    buildContext: serv_productos_php
+    dockerfilePath: Dockerfile
     envVars:
       - key: PORT
         value: 8081
