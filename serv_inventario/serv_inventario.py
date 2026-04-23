@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Productos service URL - supports both local and remote (Render)
 PRODUCTOS_SERVICE_URL = os.getenv("PRODUCTOS_SERVICE_URL", "http://localhost:8001")
-
+INVENTARIO_SERVICE_URL = os.getenv("INVENTARIO_SERVICE_URL", "http://localhost:8003")
+PEDIDOS_SERVICE_URL = os.getenv("PEDIDOS_SERVICE_URL", "http://localhost:8002")
+CLIENTES_SERVICE_URL = os.getenv("CLIENTES_SERVICE_URL", "http://localhost:8000")
 
 app = FastAPI(
     title="Departamento de Inventario",
