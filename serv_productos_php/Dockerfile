@@ -10,11 +10,11 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-COPY composer.json composer.lock* ./
+COPY serv_productos_php/composer.json serv_productos_php/composer.lock* ./
 
 RUN composer install --no-dev --optimize-autoloader
 
-COPY . .
+COPY serv_productos_php/ .
 
 RUN mkdir -p tmp && chmod 755 tmp
 
