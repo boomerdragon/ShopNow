@@ -1,9 +1,18 @@
 import csv
 import os
+import requests
+import logging
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List
 from auth import verify_token, create_access_token
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Productos service URL - supports both local and remote (Render)
+PRODUCTOS_SERVICE_URL = os.getenv("PRODUCTOS_SERVICE_URL", "http://localhost:8001")
 
 
 app = FastAPI(
@@ -52,6 +61,55 @@ def leer_inventario():
             except (ValueError, KeyError):
                 continue  # Skip rows with invalid data
         return items
+
+def verificar_producto_existe(id_producto: int) -> bool:
+    """Verifica si un producto existe en el servicio de Productos.
+    
+    Realiza una solicitud HTTP al servicio de Productos para validar
+    que el producto existe antes de permitir operaciones de inventario.
+    
+    Args:
+        id_producto: ID del producto a verificar
+        
+    Returns:
+        bool: True si el producto existe, False en caso contrario
+        
+    Raises:
+        HTTPException: Si no se puede conectar con el servicio de Productos
+    """
+    try:
+        response = requests.get(
+            f"{PRODUCTOS_SERVICE_URL}/productos",
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            productos = response.json()
+            # Buscar el producto en la lista
+            for producto in productos:
+                if producto.get('id_producto') == id_producto:
+                    logger.info(f"Producto {id_producto} encontrado en Productos service")
+                    return True
+            logger.warning(f"Producto {id_producto} NO encontrado en Productos service")
+            return False
+        else:
+            logger.error(f"Error al consultar Productos service: {response.status_code}")
+            raise HTTPException(
+                status_code=503,
+                detail="No se pudo verificar el producto. Servicio de Productos no disponible."
+            )
+    except requests.RequestException as e:
+        logger.error(f"Error de conexión con Productos service: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"No se puede conectar con el servicio de Productos: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error inesperado al verificar producto: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al verificar producto: {str(e)}"
+        )
 
 @app.post(
     "/login",
@@ -198,8 +256,14 @@ def consultar_stock(id_producto: int, token: dict = Depends(verify_token)):
                 }
             }
         },
+        400: {
+            "description": "El producto no existe en el catálogo o ya existe en inventario"
+        },
         422: {
             "description": "Datos de entrada inválidos o formato incorrecto"
+        },
+        503: {
+            "description": "Servicio de Productos no disponible"
         }
     }
 )
@@ -207,7 +271,8 @@ def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify
     """Registra un nuevo producto en el inventario.
     
     Crea un nuevo registro de inventario para un producto específico con
-    la cantidad inicial de existencias.
+    la cantidad inicial de existencias. Primero valida que el producto
+    exista en el catálogo de Productos.
     
     Args:
         mov (MovimientoInventario): Datos del movimiento de inventario.
@@ -218,11 +283,20 @@ def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify
         dict: Diccionario con confirmación del registro y datos del producto.
     
     Raises:
+        HTTPException: Con status 400 si el producto no existe en el catálogo.
         HTTPException: Con status 400 si el producto ya existe en inventario.
+        HTTPException: Con status 503 si el servicio de Productos no está disponible.
     """
+    # Verificar que el producto existe en el servicio de Productos
+    if not verificar_producto_existe(mov.id_producto):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos. No se puede agregar al inventario."
+        )
+    
     items = leer_inventario()
     
-    # Verificar que el producto no exista ya
+    # Verificar que el producto no exista ya en inventario
     if any(item['id_producto'] == mov.id_producto for item in items):
         raise HTTPException(status_code=400, detail="El producto ya existe en el inventario")
     
@@ -230,6 +304,7 @@ def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify
     with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow([mov.id_producto, mov.cantidad])
     
+    logger.info(f"Producto {mov.id_producto} registrado en inventario con cantidad {mov.cantidad}")
     return {"mensaje": "Producto registrado en inventario", "id_producto": mov.id_producto, "cantidad": mov.cantidad, "status": "success"}
 
 @app.post(
@@ -250,10 +325,13 @@ def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify
             }
         },
         400: {
-            "description": "Stock insuficiente en almacén"
+            "description": "Stock insuficiente en almacén o producto no existe en Productos"
         },
         404: {
             "description": "Producto no encontrado en inventario"
+        },
+        503: {
+            "description": "Servicio de Productos no disponible"
         }
     }
 )
@@ -262,6 +340,7 @@ def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_toke
     
     Reduce la cantidad disponible de un producto en el inventario.
     Se utiliza cuando se completa exitosamente un pedido.
+    Valida que el producto exista en el catálogo de Productos.
     
     Args:
         mov (MovimientoInventario): Datos del movimiento de descuento.
@@ -272,9 +351,17 @@ def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_toke
         dict: Diccionario con confirmación de la operación.
     
     Raises:
-        HTTPException: Con status 400 si stock es insuficiente.
+        HTTPException: Con status 400 si stock es insuficiente o producto no existe en Productos.
         HTTPException: Con status 404 si el producto no existe en inventario.
+        HTTPException: Con status 503 si el servicio de Productos no está disponible.
     """
+    # Verificar que el producto existe en el servicio de Productos
+    if not verificar_producto_existe(mov.id_producto):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos."
+        )
+    
     items = leer_inventario()
     encontrado = False
     for item in items:
@@ -298,7 +385,8 @@ def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_toke
                 'id_producto': item_row['id_producto'],
                 'cantidad': item_row['cantidad']
             })
-        
+    
+    logger.info(f"Stock descontado del producto {mov.id_producto}. Cantidad descontada: {mov.cantidad}")
     return {"mensaje": "Descuento de inventario aplicado exitosamente", "status": "success"}
 
 @app.post(
@@ -320,8 +408,14 @@ def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_toke
                 }
             }
         },
+        400: {
+            "description": "El producto no existe en el catálogo de Productos"
+        },
         404: {
             "description": "Producto no encontrado en inventario"
+        },
+        503: {
+            "description": "Servicio de Productos no disponible"
         }
     }
 )
@@ -330,6 +424,7 @@ def agregar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)
     
     Incrementa la cantidad disponible de un producto en el inventario.
     Se utiliza para registrar compras de mercancía o devoluciones.
+    Valida que el producto exista en el catálogo de Productos.
     
     Args:
         mov (MovimientoInventario): Datos del movimiento de adición.
@@ -340,8 +435,17 @@ def agregar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)
         dict: Diccionario con confirmación de la operación y nueva cantidad.
     
     Raises:
+        HTTPException: Con status 400 si el producto no existe en Productos.
         HTTPException: Con status 404 si el producto no existe en inventario.
+        HTTPException: Con status 503 si el servicio de Productos no está disponible.
     """
+    # Verificar que el producto existe en el servicio de Productos
+    if not verificar_producto_existe(mov.id_producto):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos."
+        )
+    
     items = leer_inventario()
     encontrado = False
     nueva_cantidad = 0
@@ -364,6 +468,7 @@ def agregar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)
                 'id_producto': item_row['id_producto'],
                 'cantidad': item_row['cantidad']
             })
-        
+    
+    logger.info(f"Stock agregado al producto {mov.id_producto}. Nueva cantidad: {nueva_cantidad}")
     return {"mensaje": "Existencias agregadas exitosamente", "id_producto": mov.id_producto, "nueva_cantidad": nueva_cantidad, "status": "success"}
 

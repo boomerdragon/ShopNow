@@ -37,6 +37,10 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
+      - PRODUCTOS_SERVICE_URL=https://shopnow-productos.onrender.com
+      - INVENTARIO_SERVICE_URL=https://shopnow-inventario.onrender.com
+      - PEDIDOS_SERVICE_URL=https://shopnow-pedidos.onrender.com
+      - CLIENTES_SERVICE_URL=https://shopnow-clientes.onrender.com
     networks:
       - shopnow-network
     volumes:
@@ -58,6 +62,10 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
+      - PRODUCTOS_SERVICE_URL=https://shopnow-productos.onrender.com
+      - INVENTARIO_SERVICE_URL=https://shopnow-inventario.onrender.com
+      - PEDIDOS_SERVICE_URL=https://shopnow-pedidos.onrender.com
+      - CLIENTES_SERVICE_URL=https://shopnow-clientes.onrender.com
     networks:
       - shopnow-network
     volumes:
@@ -79,6 +87,10 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
+      - PRODUCTOS_SERVICE_URL=https://shopnow-productos.onrender.com
+      - INVENTARIO_SERVICE_URL=https://shopnow-inventario.onrender.com
+      - PEDIDOS_SERVICE_URL=https://shopnow-pedidos.onrender.com
+      - CLIENTES_SERVICE_URL=https://shopnow-clientes.onrender.com
     networks:
       - shopnow-network
     volumes:
@@ -100,6 +112,10 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
+      - PRODUCTOS_SERVICE_URL=https://shopnow-productos.onrender.com
+      - INVENTARIO_SERVICE_URL=https://shopnow-inventario.onrender.com
+      - PEDIDOS_SERVICE_URL=https://shopnow-pedidos.onrender.com
+      - CLIENTES_SERVICE_URL=https://shopnow-clientes.onrender.com
     networks:
       - shopnow-network
     volumes:
