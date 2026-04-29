@@ -10,17 +10,34 @@ from auth import verify_token, create_access_token
 DB_CONFIG = {
     'host': 'dpg-d7ohmhpj2pic73abp6l0-a.oregon-postgres.render.com',
     'user': 'shopnow_663n_user',
-    'password': 'shopnow_663n',
+    'password': 'mJKZ4Bs3pW5XqeK5c5FLlukVy1TUGEIl',
     'database': 'shopnow_663n',
     'port': 5432
 }
 
 # Create connection pool
-try:
-    connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
-except Exception as e:
-    print(f"Error creating connection pool: {e}")
-    connection_pool = None
+connection_pool = None
+
+def init_connection_pool():
+    """Initialize the database connection pool"""
+    global connection_pool
+    try:
+        print("Attempting to connect to PostgreSQL...")
+        print(f"  Host: {DB_CONFIG['host']}")
+        print(f"  User: {DB_CONFIG['user']}")
+        print(f"  Database: {DB_CONFIG['database']}")
+        
+        connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
+        print("✓ Connection pool created successfully")
+        return True
+    except psycopg2.OperationalError as e:
+        print(f"✗ PostgreSQL connection error: {e}")
+        connection_pool = None
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error creating connection pool: {e}")
+        connection_pool = None
+        return False
 
 app = FastAPI(
     title="Departamento de Clientes",
@@ -34,15 +51,20 @@ app = FastAPI(
     }
 )
 
-# Inicializar tabla si no existe
-def init_database():
-    """Create clientes table if it doesn't exist"""
-    if connection_pool is None:
-        print("Connection pool not available")
+# Startup event to initialize database connection and schema
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection pool and create tables on startup"""
+    if not init_connection_pool():
+        print("⚠️  WARNING: Could not establish database connection on startup")
         return
     
-    conn = connection_pool.getconn()
+    if connection_pool is None:
+        print("⚠️  WARNING: Connection pool is None")
+        return
+    
     try:
+        conn = connection_pool.getconn()
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS clientes (
@@ -57,15 +79,20 @@ def init_database():
             )
         """)
         conn.commit()
-        print("Database initialized successfully")
+        print("✓ Database table 'clientes' initialized successfully")
     except Exception as e:
-        print(f"Error initializing database: {e}")
-        conn.rollback()
+        print(f"✗ Error initializing database table: {e}")
     finally:
+        cursor.close()
         connection_pool.putconn(conn)
 
-# Initialize database on startup
-init_database()
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection pool on shutdown"""
+    global connection_pool
+    if connection_pool:
+        connection_pool.closeall()
+        print("✓ Database connection pool closed")
 
 class Cliente(BaseModel):
     id_cliente: int = Field(..., example=101, description="ID numérico único") # type: ignore
@@ -96,8 +123,16 @@ class LoginRequest(BaseModel):
 def get_db_connection():
     """Get a connection from the pool"""
     if connection_pool is None:
-        raise HTTPException(status_code=500, detail="Database connection pool not available")
-    return connection_pool.getconn()
+        print("ERROR: Database connection pool is not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="Database connection unavailable. Check service logs for connection details."
+        )
+    try:
+        return connection_pool.getconn()
+    except Exception as e:
+        print(f"ERROR getting connection from pool: {e}")
+        raise HTTPException(status_code=503, detail="Failed to get database connection")
 
 def return_db_connection(conn):
     """Return a connection to the pool"""
