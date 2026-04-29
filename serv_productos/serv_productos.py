@@ -12,7 +12,7 @@ app = FastAPI(
     "Este servicio actúa como el punto central de integración para la validación de productos en los procesos de venta y gestión de pedidos. \n\n" \
     "Ejecutar en puerto **8001** y asegurarse de que los servicios de Pedidos (8002) y Clientes (8000) estén activos para su correcto funcionamiento. \n\n" \
     "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
-    version="2.0.0",
+    version="3.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
