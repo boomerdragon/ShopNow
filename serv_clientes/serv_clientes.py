@@ -1,32 +1,71 @@
-import csv
-import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2 import pool
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from auth import verify_token, create_access_token
 
+# PostgreSQL connection configuration
+DB_CONFIG = {
+    'host': 'dpg-d7ohmhpj2pic73abp6l0-a.oregon-postgres.render.com',
+    'user': 'shopnow_663n_user',
+    'password': 'shopnow_663n',
+    'database': 'shopnow_663n',
+    'port': 5432
+}
+
+# Create connection pool
+try:
+    connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
+except Exception as e:
+    print(f"Error creating connection pool: {e}")
+    connection_pool = None
 
 app = FastAPI(
     title="Departamento de Clientes",
     description="Servicio encargado de la custodia y registro oficial de los clientes de la empresa. \n\n" \
     "Este servicio actúa como el punto central de integración para la validación de clientes en los procesos de venta y atención al cliente. \n\n" \
     "Ejecutar en puerto **8000** y asegurarse de que los servicios de Pedidos (8002) y Productos (8001) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
-    version="3.0.0",
+    "**Versión PostgreSQL**: Almacenamiento en base de datos relacional con Render.com",
+    version="4.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
 )
 
-# /home/boomer/ITQ/SOA/ShopNow_PHP/shopnow/var/db_clientes.csv
-# /home/boomer/ITQ/SOA/ShopNow/clientes.csv
-FILE_NAME = "clientes.csv"
-HEADERS = ["id_cliente", "nombre", "correo", "direccion", "telefono", "activo"]
+# Inicializar tabla si no existe
+def init_database():
+    """Create clientes table if it doesn't exist"""
+    if connection_pool is None:
+        print("Connection pool not available")
+        return
+    
+    conn = connection_pool.getconn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS clientes (
+                id_cliente SERIAL PRIMARY KEY,
+                nombre VARCHAR(255) NOT NULL,
+                correo VARCHAR(255) NOT NULL UNIQUE,
+                direccion VARCHAR(255) NOT NULL,
+                telefono VARCHAR(20) NOT NULL,
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        conn.rollback()
+    finally:
+        connection_pool.putconn(conn)
 
-# Inicializar archivo si no existe
-if not os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(HEADERS)
+# Initialize database on startup
+init_database()
 
 class Cliente(BaseModel):
     id_cliente: int = Field(..., example=101, description="ID numérico único") # type: ignore
@@ -54,27 +93,31 @@ class LoginRequest(BaseModel):
     username: str = Field(..., example="admin") # type: ignore
     password: str = Field(..., example="password123") # type: ignore
 
+def get_db_connection():
+    """Get a connection from the pool"""
+    if connection_pool is None:
+        raise HTTPException(status_code=500, detail="Database connection pool not available")
+    return connection_pool.getconn()
+
+def return_db_connection(conn):
+    """Return a connection to the pool"""
+    if connection_pool is not None:
+        connection_pool.putconn(conn)
+
 def leer_clientes():
-    """Lee todos los clientes del archivo CSV con conversión de tipos correcta."""
-    with open(FILE_NAME, "r", encoding="utf-8") as f:
-        rows = csv.DictReader(f)
-        clientes = []
-        for row in rows:
-            if not row or not row.get('id_cliente'):  # Skip empty rows
-                continue
-            try:
-                cliente = {
-                    'id_cliente': int(row['id_cliente']),
-                    'nombre': row['nombre'],
-                    'correo': row['correo'],
-                    'direccion': row['direccion'],
-                    'telefono': row['telefono'],
-                    'activo': row['activo'].lower() in ('true', '1', 'yes')
-                }
-                clientes.append(cliente)
-            except (ValueError, KeyError):
-                continue  # Skip rows with invalid data
-        return clientes
+    """Lee todos los clientes de la base de datos PostgreSQL."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
+        clientes = cursor.fetchall()
+        return [dict(cliente) for cliente in clientes]
+    except Exception as e:
+        print(f"Error reading clientes: {e}")
+        raise HTTPException(status_code=500, detail="Error reading clientes from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.post(
     "/login",
@@ -181,8 +224,8 @@ def registrar_cliente(nuevo: ClienteRegistro, token: dict = Depends(verify_token
     
     Crea un nuevo cliente con el siguiente flujo:
     1. Valida los datos de entrada según el modelo ClienteRegistro
-    2. Genera un ID único autoincremental
-    3. Almacena el cliente en el archivo CSV
+    2. Inserta el registro en la base de datos PostgreSQL
+    3. Retorna el ID asignado
     
     Args:
         nuevo (ClienteRegistro): Datos del cliente a registrar.
@@ -194,19 +237,28 @@ def registrar_cliente(nuevo: ClienteRegistro, token: dict = Depends(verify_token
     Returns:
         dict: Diccionario con mensaje de éxito e ID asignado del cliente.
     """
-    clientes = leer_clientes()
-    
-    # Generar ID autoincremental
-    if clientes:
-        siguiente_id = max(c['id_cliente'] for c in clientes) + 1
-    else:
-        siguiente_id = 1
-    
-    with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-        # Convert boolean to string for CSV storage
-        activo_str = "True" if nuevo.activo else "False"
-        csv.writer(f).writerow([siguiente_id, nuevo.nombre, nuevo.correo, nuevo.direccion, nuevo.telefono, activo_str])
-    return {"mensaje": "Cliente registrado en el archivo CSV", "id_cliente": siguiente_id, "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO clientes (nombre, correo, direccion, telefono, activo)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id_cliente
+        """, (nuevo.nombre, nuevo.correo, nuevo.direccion, nuevo.telefono, nuevo.activo))
+        
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"mensaje": "Cliente registrado en la base de datos", "id_cliente": new_id, "status": "success"}
+    except psycopg2.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="El correo ya está registrado")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error registering cliente: {e}")
+        raise HTTPException(status_code=500, detail="Error registering cliente in database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.delete(
     "/clientes/{id_cliente}",
@@ -252,30 +304,33 @@ def eliminar_cliente(id_cliente: int, token: dict = Depends(verify_token)):
     Raises:
         HTTPException: Con status 404 si el cliente no existe.
     """
-    clientes = leer_clientes()
-    cliente = next((c for c in clientes if c['id_cliente'] == id_cliente), None)
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    
-    # Marcar como inactivo en lugar de eliminar físicamente
-    cliente['activo'] = False
-    
-    # Reescribir el archivo CSV con los cambios
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convert boolean to string for CSV storage
-        for item_row in clientes:
-            writer.writerow({
-                'id_cliente': item_row['id_cliente'],
-                'nombre': item_row['nombre'],
-                'correo': item_row['correo'],
-                'direccion': item_row['direccion'],
-                'telefono': item_row['telefono'],
-                'activo': "True" if item_row['activo'] else "False"
-            })
-    
-    return {"mensaje": "Cliente eliminado (inactivado) exitosamente", "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Check if cliente exists
+        cursor.execute("SELECT id_cliente FROM clientes WHERE id_cliente = %s", (id_cliente,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        
+        # Mark as inactive
+        cursor.execute("""
+            UPDATE clientes
+            SET activo = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE id_cliente = %s
+        """, (id_cliente,))
+        
+        conn.commit()
+        return {"mensaje": "Cliente eliminado (inactivado) exitosamente", "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting cliente: {e}")
+        raise HTTPException(status_code=500, detail="Error deleting cliente from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.patch(
     "/clientes/{id_cliente}",
@@ -331,37 +386,55 @@ def actualizar_cliente_parcial(id_cliente: int, update: ClienteUpdate, token: di
     Raises:
         HTTPException: Con status 404 si el cliente no existe.
     """
-    clientes = leer_clientes()
-    cliente = next((c for c in clientes if c['id_cliente'] == id_cliente), None)
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    
-    # Actualizar campos proporcionados
-    if update.nombre is not None:
-        cliente['nombre'] = update.nombre
-    if update.correo is not None:
-        cliente['correo'] = update.correo
-    if update.direccion is not None:
-        cliente['direccion'] = update.direccion
-    if update.telefono is not None:
-        cliente['telefono'] = update.telefono
-    if update.activo is not None:
-        cliente['activo'] = update.activo
-    
-    # Reescribir el archivo CSV con los cambios
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convert boolean to string for CSV storage
-        for item_row in clientes:
-            writer.writerow({
-                'id_cliente': item_row['id_cliente'],
-                'nombre': item_row['nombre'],
-                'correo': item_row['correo'],
-                'direccion': item_row['direccion'],
-                'telefono': item_row['telefono'],
-                'activo': "True" if item_row['activo'] else "False"
-            })
-    
-    return {"mensaje": "Cliente actualizado parcialmente exitosamente", "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Check if cliente exists
+        cursor.execute("SELECT id_cliente FROM clientes WHERE id_cliente = %s", (id_cliente,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if update.nombre is not None:
+            updates.append("nombre = %s")
+            params.append(update.nombre)
+        if update.correo is not None:
+            updates.append("correo = %s")
+            params.append(update.correo)
+        if update.direccion is not None:
+            updates.append("direccion = %s")
+            params.append(update.direccion)
+        if update.telefono is not None:
+            updates.append("telefono = %s")
+            params.append(update.telefono)
+        if update.activo is not None:
+            updates.append("activo = %s")
+            params.append(update.activo)
+        
+        # Add id_cliente to params for WHERE clause
+        params.append(id_cliente)
+        
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            query = f"UPDATE clientes SET {', '.join(updates)} WHERE id_cliente = %s"
+            cursor.execute(query, params)
+            conn.commit()
+        
+        return {"mensaje": "Cliente actualizado parcialmente exitosamente", "status": "success"}
+    except HTTPException:
+        raise
+    except psycopg2.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="El correo ya está registrado")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating cliente: {e}")
+        raise HTTPException(status_code=500, detail="Error updating cliente in database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
