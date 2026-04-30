@@ -6,13 +6,19 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     unzip \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy composer from official composer image
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-COPY serv_productos_php/composer.json serv_productos_php/composer.lock* ./
+# Copy composer configuration files
+COPY serv_productos_php/composer.json ./
+COPY serv_productos_php/composer.lock ./
 
-RUN composer install --no-dev --optimize-autoloader
+# Install dependencies with better error handling
+RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction --no-scripts 2>&1 | tee /tmp/composer-install.log && \
+    (grep -i "error\|failed" /tmp/composer-install.log && exit 1 || echo "Composer install successful")
 
 COPY serv_productos_php/ .
 
