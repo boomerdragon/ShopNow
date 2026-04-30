@@ -10,9 +10,13 @@
 // Composer autoloader
 require_once __DIR__ . '/../vendor/autoload.php';
 
-// Load environment variables (optional - use safeLoad() to handle missing .env)
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->safeLoad();
+// Load environment variables (optional - use try-catch to handle missing .env)
+try {
+    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+    $dotenv->safeLoad();
+} catch (\Dotenv\Exception\InvalidPathException $e) {
+    // .env file doesn't exist - that's OK, use environment variables or defaults
+}
 
 // Global header function (define early so controllers can use it)
 function setJsonHeaders() {
