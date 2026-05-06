@@ -22,6 +22,22 @@ RUN composer install --no-dev --optimize-autoloader --prefer-dist --no-interacti
 
 COPY serv_productos_php/ .
 
+# Ensure .env exists for configuration
+RUN if [ ! -f .env ]; then \
+    echo "# Fat-Free Framework Configuration" > .env && \
+    echo "DEBUG=3" >> .env && \
+    echo "CACHE=folder=tmp/" >> .env && \
+    echo "" >> .env && \
+    echo "# JWT Configuration" >> .env && \
+    echo "JWT_SECRET=${JWT_SECRET:-shopnow-secret-key-2024-change-in-production}" >> .env && \
+    echo "JWT_ALGORITHM=HS256" >> .env && \
+    echo "" >> .env && \
+    echo "# Service Configuration" >> .env && \
+    echo "SERVICE_PORT=8081" >> .env && \
+    echo "SERVICE_NAME=productos" >> .env && \
+    echo "DATA_FILE=../productos.csv" >> .env; \
+    fi
+
 RUN mkdir -p tmp && chmod 755 tmp
 
 EXPOSE 8081

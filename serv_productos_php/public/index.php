@@ -12,10 +12,14 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 // Load environment variables (optional - use try-catch to handle missing .env)
 try {
-    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-    $dotenv->safeLoad();
-} catch (\Dotenv\Exception\InvalidPathException $e) {
-    // .env file doesn't exist - that's OK, use environment variables or defaults
+    $envPath = __DIR__ . '/..';
+    if (file_exists($envPath . '/.env')) {
+        $dotenv = Dotenv\Dotenv::createImmutable($envPath);
+        $dotenv->safeLoad();
+    }
+} catch (\Exception $e) {
+    // .env file doesn't exist or can't be loaded - that's OK, use environment variables or defaults
+    error_log('Warning: Could not load .env file: ' . $e->getMessage());
 }
 
 // Global header function (define early so controllers can use it)
