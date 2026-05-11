@@ -139,12 +139,19 @@ def return_db_connection(conn):
     if connection_pool is not None:
         connection_pool.putconn(conn)
 
-def leer_clientes():
-    """Lee todos los clientes de la base de datos PostgreSQL."""
+def leer_clientes(include_inactive: bool = False):
+    """Lee todos los clientes de la base de datos PostgreSQL.
+    
+    Args:
+        include_inactive: Si True, incluye clientes inactivos. Si False, solo activos.
+    """
     conn = get_db_connection()
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
+        if include_inactive:
+            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes ORDER BY id_cliente")
+        else:
+            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
         clientes = cursor.fetchall()
         return [dict(cliente) for cliente in clientes]
     except Exception as e:
@@ -221,16 +228,19 @@ def login(credentials: LoginRequest):
         }
     }
 )
-def obtener_clientes(token: dict = Depends(verify_token)):
-    """Retorna el padrón oficial de clientes desde el archivo CSV.
+def obtener_clientes(token: dict = Depends(verify_token), include_inactive: bool = False):
+    """Retorna el padrón oficial de clientes desde la base de datos.
     
-    Este endpoint obtiene la lista completa de todos los clientes registrados
-    en la base de datos de clientes persistente (archivo CSV).
+    Este endpoint obtiene la lista de clientes registrados en la base de datos.
+    Por defecto, solo retorna clientes activos. Use include_inactive=true para incluir inactivos.
+    
+    Args:
+        include_inactive: Si es true, incluye clientes inactivos en la respuesta.
     
     Returns:
         List[Cliente]: Lista de clientes con todos sus datos.
     """
-    return leer_clientes()
+    return leer_clientes(include_inactive=include_inactive)
 
 @app.post(
     "/clientes",
