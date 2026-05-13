@@ -42,53 +42,54 @@ function requireLogin() {
 }
 
 // Helper function to make API calls
-function callAPI($endpoint, $method = 'GET', $data = null, $token = null) {
+function callAPI($endpoint, $method = 'GET', $data = null, $token = null, $queryParams = null) {
     $url = API_BASE_URL . $endpoint;
     
-    $options = [
-        'http' => [
-            'method' => $method,
-            'header' => [
-                'Content-Type: application/json',
-                'Accept: application/json'
-            ],
-            'timeout' => API_TIMEOUT
-        ]
-    ];
+    // Add query parameters if provided
+    if ($queryParams && is_array($queryParams)) {
+        $queryString = http_build_query($queryParams);
+        $url .= '?' . $queryString;
+    }
     
-    // Add JWT token if provided
+    // Use curl command as fallback when PHP curl extension is not available
+    $cmd = "curl -s -X $method -H \"Content-Type: application/json\" -H \"Accept: application/json\"";
+    
     if ($token) {
-        $options['http']['header'][] = 'Authorization: Bearer ' . $token;
+        $cmd .= " -H \"Authorization: Bearer $token\"";
     }
     
-    // Add data if provided
     if ($data !== null && in_array($method, ['POST', 'PUT', 'PATCH'])) {
-        $options['http']['content'] = json_encode($data);
+        $json_data = json_encode($data);
+        // Escape quotes for cmd.exe
+        $escaped_json = str_replace('"', '\\"', $json_data);
+        $cmd .= " -d \"$escaped_json\"";
     }
     
-    $context = stream_context_create($options);
+    $cmd .= " \"$url\"";
     
-    try {
-        $response = @file_get_contents($url, false, $context);
-        
-        if ($response === false) {
-            return [
-                'success' => false,
-                'error' => 'Unable to connect to the Clientes service. Please verify it is running on port 8000.'
-            ];
-        }
-        
-        $decoded = json_decode($response, true);
-        return [
-            'success' => true,
-            'data' => $decoded
-        ];
-    } catch (Exception $e) {
+    // Use cmd /c to ensure it runs in cmd.exe
+    $full_cmd = "cmd /c $cmd";
+    $response = shell_exec($full_cmd);
+    
+    if ($response === null) {
         return [
             'success' => false,
-            'error' => $e->getMessage()
+            'error' => 'Unable to connect to the Clientes service. Please verify it is running.'
         ];
     }
+    
+    $decoded = json_decode($response, true);
+    if ($decoded === null) {
+        // If JSON decode fails, check if it's an error response
+        if (strpos($response, 'detail') !== false) {
+            $decoded = json_decode($response, true);
+        }
+    }
+    
+    return [
+        'success' => true,
+        'data' => $decoded
+    ];
 }
 
 // Helper function to validate email
