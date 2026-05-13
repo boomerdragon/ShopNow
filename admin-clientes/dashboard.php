@@ -9,9 +9,9 @@ $clientes = [];
 $error = '';
 $success = '';
 
-// Fetch clientes from API (including inactive)
+// Fetch clientes from API
 $token = getJWTToken();
-$result = callAPI('/clientes?include_inactive=true', 'GET', null, $token);
+$result = callAPI('/clientes', 'GET', null, $token);
 
 if ($result['success']) {
     $clientes = is_array($result['data']) ? $result['data'] : [];

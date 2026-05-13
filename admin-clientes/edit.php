@@ -12,8 +12,8 @@ $notFound = false;
 
 // Fetch cliente data
 $token = getJWTToken();
-// Since the API doesn't support GET /clientes/{id}, fetch all (including inactive) and find by ID
-$result = callAPI("/clientes?include_inactive=true", 'GET', null, $token);
+// Since the API doesn't support GET /clientes/{id}, fetch all and find by ID
+$result = callAPI("/clientes", 'GET', null, $token);
 
 if ($result['success'] && is_array($result['data'])) {
     // Find the cliente with matching ID
