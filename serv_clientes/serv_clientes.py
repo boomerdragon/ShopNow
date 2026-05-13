@@ -148,10 +148,10 @@ def leer_clientes(include_inactive: bool = True):
     conn = get_db_connection()
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        #if include_inactive:
-        cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes ORDER BY id_cliente")
-        #else:
-        #    cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
+        if include_inactive:
+            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes ORDER BY id_cliente")
+        else:
+            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
         clientes = cursor.fetchall()
         return [dict(cliente) for cliente in clientes]
     except Exception as e:
