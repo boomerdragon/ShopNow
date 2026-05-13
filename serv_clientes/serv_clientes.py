@@ -139,19 +139,14 @@ def return_db_connection(conn):
     if connection_pool is not None:
         connection_pool.putconn(conn)
 
-def leer_clientes(include_inactive: bool = True):
+#def leer_clientes(include_inactive: bool = True):
+def leer_clientes():
     """Lee todos los clientes de la base de datos PostgreSQL.
-    
-    Args:
-        include_inactive: Si True, incluye clientes inactivos. Si False, solo activos.
     """
     conn = get_db_connection()
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        if include_inactive:
-            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes ORDER BY id_cliente")
-        else:
-            cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes WHERE activo = TRUE ORDER BY id_cliente")
+        cursor.execute("SELECT id_cliente, nombre, correo, direccion, telefono, activo FROM clientes ORDER BY id_cliente")
         clientes = cursor.fetchall()
         return [dict(cliente) for cliente in clientes]
     except Exception as e:
