@@ -1,7 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from auth import verify_token, create_access_token
@@ -97,9 +97,9 @@ async def shutdown_event():
 class Cliente(BaseModel):
     id_cliente: int = Field(..., example=101, description="ID numérico único") # type: ignore
     nombre: str = Field(..., min_length=3, example="Juan Pérez") # type: ignore
-    correo: EmailStr = Field(..., example="juan@ejemplo.com") # type: ignore
+    correo: str = Field(..., example="juan@ejemplo.com") # type: ignore
     direccion: str = Field(..., example="Calle 123") # type: ignore
-    telefono: str = Field(..., min_length=10, max_length=10, example="4421234567") # type: ignore
+    telefono: str = Field(..., example="4421234567") # type: ignore
     activo: bool = Field(..., example=True) # type: ignore
 
 class ClienteRegistro(BaseModel):
@@ -229,7 +229,7 @@ def login(credentials: LoginRequest):
     }
 )
 
-def obtener_clientes(include_inactive: bool = False, token: dict = Depends(verify_token)):
+def obtener_clientes(include_inactive: bool = Query(False, description="Si True, incluye clientes inactivos"), token: dict = Depends(verify_token)):
     """Retorna el padrón oficial de clientes desde la base de datos.
     
     Este endpoint obtiene la lista de clientes registrados en la base de datos.
