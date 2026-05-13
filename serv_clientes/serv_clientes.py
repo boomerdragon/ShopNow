@@ -228,16 +228,20 @@ def login(credentials: LoginRequest):
         }
     }
 )
-def obtener_clientes(token: dict = Depends(verify_token)):
+    }
+)
+def obtener_clientes(include_inactive: bool = False, token: dict = Depends(verify_token)):
     """Retorna el padrón oficial de clientes desde la base de datos.
     
     Este endpoint obtiene la lista de clientes registrados en la base de datos.
-    Solo retorna clientes activos.
+    
+    Args:
+        include_inactive: Si True, incluye clientes inactivos. Si False, solo activos.
     
     Returns:
         List[Cliente]: Lista de clientes con todos sus datos.
     """
-    return leer_clientes()
+    return leer_clientes(include_inactive=include_inactive)
 
 @app.post(
     "/clientes",
