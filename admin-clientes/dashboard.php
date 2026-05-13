@@ -13,9 +13,6 @@ $success = '';
 $token = getJWTToken();
 $result = callAPI('/clientes', 'GET', null, $token, ['include_inactive' => 'true']);
 
-// Debug: show the API call result
-error_log("Dashboard API call result: " . print_r($result, true));
-
 if ($result['success']) {
     $clientes = is_array($result['data']) ? $result['data'] : [];
 } else {
