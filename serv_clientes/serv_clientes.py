@@ -228,8 +228,7 @@ def login(credentials: LoginRequest):
         }
     }
 )
-    }
-)
+
 def obtener_clientes(include_inactive: bool = False, token: dict = Depends(verify_token)):
     """Retorna el padrón oficial de clientes desde la base de datos.
     
