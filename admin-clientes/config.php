@@ -8,8 +8,10 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// API Configuration
-define('API_BASE_URL', 'https://shopnow-clientes.onrender.com');
+// API Configuration - Auto-detect environment
+// Use local development URL if running on localhost, otherwise use production
+$is_local = ($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === 'localhost:8080' || $_SERVER['HTTP_HOST'] === '127.0.0.1:8080');
+define('API_BASE_URL', $is_local ? 'http://localhost:8000' : 'https://shopnow-clientes.onrender.com');
 define('API_TIMEOUT', 10);
 
 // Session Configuration
@@ -51,39 +53,49 @@ function callAPI($endpoint, $method = 'GET', $data = null, $token = null, $query
         $url .= '?' . $queryString;
     }
     
-    // Use curl command as fallback when PHP curl extension is not available
-    $cmd = "curl -s -X $method -H \"Content-Type: application/json\" -H \"Accept: application/json\"";
+    // Build curl command with proper escaping for both Linux and Windows
+    $cmd = 'curl';
+    $cmd .= ' -s'; // silent
+    $cmd .= ' -X ' . escapeshellarg($method);
+    $cmd .= ' -H ' . escapeshellarg('Content-Type: application/json');
+    $cmd .= ' -H ' . escapeshellarg('Accept: application/json');
+    $cmd .= ' --max-time ' . escapeshellarg((string)API_TIMEOUT);
     
     if ($token) {
-        $cmd .= " -H \"Authorization: Bearer $token\"";
+        $cmd .= ' -H ' . escapeshellarg('Authorization: Bearer ' . $token);
     }
     
     if ($data !== null && in_array($method, ['POST', 'PUT', 'PATCH'])) {
         $json_data = json_encode($data);
-        // Escape quotes for cmd.exe
-        $escaped_json = str_replace('"', '\\"', $json_data);
-        $cmd .= " -d \"$escaped_json\"";
+        $cmd .= ' -d ' . escapeshellarg($json_data);
     }
     
-    $cmd .= " \"$url\"";
+    $cmd .= ' ' . escapeshellarg($url);
     
-    // Use cmd /c to ensure it runs in cmd.exe
-    $full_cmd = "cmd /c $cmd";
-    $response = shell_exec($full_cmd);
+    // Execute curl command - works on both Linux and Windows
+    $response = shell_exec($cmd);
     
     if ($response === null) {
+        // Log the failed command for debugging
+        error_log("API call failed. Command: $cmd");
+        error_log("API URL: " . API_BASE_URL . $endpoint);
         return [
             'success' => false,
-            'error' => 'Unable to connect to the Clientes service. Please verify it is running.'
+            'error' => 'Unable to connect to the Clientes service. Please verify it is running at ' . API_BASE_URL
         ];
     }
     
+    // Trim response and decode JSON
+    $response = trim($response);
     $decoded = json_decode($response, true);
+    
     if ($decoded === null) {
-        // If JSON decode fails, check if it's an error response
-        if (strpos($response, 'detail') !== false) {
-            $decoded = json_decode($response, true);
-        }
+        // JSON decode failed - log raw response for debugging
+        error_log("JSON decode failed. Raw response: " . substr($response, 0, 500));
+        return [
+            'success' => false,
+            'error' => 'Invalid response from Clientes service'
+        ];
     }
     
     return [

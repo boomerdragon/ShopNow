@@ -29,7 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'password' => $password
         ]);
         
-        if ($result['success'] && isset($result['data']['access_token'])) {
+        // Check if the API call was successful
+        if (!$result['success']) {
+            $error = $result['error'] ?? 'Login failed. Please try again.';
+        } elseif (isset($result['data']['access_token'])) {
             // Store JWT token and user info in session
             $_SESSION['jwt_token'] = $result['data']['access_token'];
             $_SESSION['user'] = $username;
@@ -39,7 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: dashboard.php');
             exit();
         } else {
-            $error = $result['data']['detail'] ?? 'Login failed. Please try again.';
+            // API responded but no access_token in response
+            $error = $result['data']['detail'] ?? $result['data']['message'] ?? 'Login failed. Invalid credentials.';
         }
     }
 }
