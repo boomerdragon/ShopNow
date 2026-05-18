@@ -70,3 +70,15 @@ services:
         value: 8081
       - key: SERVICE_NAME
         value: productos-php
+
+  # Admin Clientes (Admin Dashboard for Customer Management)
+  - type: web
+    name: shopnow-admin-clientes
+    runtime: docker
+    plan: free
+    dockerfilePath: admin-clientes/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: SERVICE_NAME
+        value: admin-clientes

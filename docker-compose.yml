@@ -144,6 +144,23 @@ services:
       - ./serv_productos_php:/app
     profiles: ["php"]
 
+  # Admin Clientes (Admin Dashboard for Customer Management)
+  admin-clientes:
+    build:
+      context: ./admin-clientes
+      dockerfile: Dockerfile
+    container_name: shopnow-admin-clientes
+    ports:
+      - "8080:8080"
+    depends_on:
+      - clientes
+    networks:
+      - shopnow-network
+    volumes:
+      - ./admin-clientes:/app
+    environment:
+      - SERVICE_NAME=admin-clientes
+
 networks:
   shopnow-network:
     driver: bridge
