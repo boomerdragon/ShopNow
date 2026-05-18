@@ -8,5 +8,5 @@ require_once 'config.php';
 session_destroy();
 
 // Redirect to login
-header('Location: index.php');
+header('Location: ' . BASE_PATH . 'index.php');
 exit();

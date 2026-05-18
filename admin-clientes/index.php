@@ -6,7 +6,7 @@ require_once 'config.php';
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    header('Location: ' . BASE_PATH . 'dashboard.php');
     exit();
 }
 
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['login_time'] = time();
             
             // Redirect to dashboard
-            header('Location: dashboard.php');
+            header('Location: ' . BASE_PATH . 'dashboard.php');
             exit();
         } else {
             // API responded but no access_token in response

@@ -8,6 +8,12 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
+// Determine the base path for the application
+// This allows the app to work from any subdirectory like /admin-clientes/
+$scriptPath = dirname($_SERVER['SCRIPT_NAME']);
+$basePath = ($scriptPath === '/' || $scriptPath === '\\') ? '/' : rtrim($scriptPath, '/') . '/';
+define('BASE_PATH', $basePath);
+
 // API Configuration - Auto-detect environment
 // Use local development URL if running on localhost, otherwise use production
 $is_local = ($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === 'localhost:8080' || $_SERVER['HTTP_HOST'] === '127.0.0.1:8080');

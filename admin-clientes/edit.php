@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$notFound) {
         
         if ($updateResult['success']) {
             setFlash('success', 'Cliente actualizado exitosamente');
-            header('Location: dashboard.php');
+            header('Location: ' . BASE_PATH . 'dashboard.php');
             exit();
         } else {
             $errors['general'] = $updateResult['error'] ?? 'Error al actualizar el cliente';
@@ -88,13 +88,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$notFound) {
     <title>ShopNow - Admin Clientes - Editar Cliente</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <link href="<?php echo BASE_PATH; ?>css/style.css" rel="stylesheet">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
         <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="dashboard.php">
+            <a class="navbar-brand fw-bold" href="<?php echo BASE_PATH; ?>dashboard.php">
                 <i class="bi bi-shop me-2"></i>ShopNow Admin
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -109,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$notFound) {
                         </span>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="logout.php">
+                        <a class="nav-link" href="<?php echo BASE_PATH; ?>logout.php">
                             <i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión
                         </a>
                     </li>
@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$notFound) {
         <div class="row mb-4">
             <div class="col">
                 <div class="d-flex align-items-center gap-3">
-                    <a href="dashboard.php" class="btn btn-outline-secondary btn-sm">
+                    <a href="<?php echo BASE_PATH; ?>dashboard.php" class="btn btn-outline-secondary btn-sm">
                         <i class="bi bi-chevron-left me-1"></i>Volver
                     </a>
                     <div>
@@ -143,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$notFound) {
                 <i class="bi bi-exclamation-circle me-2"></i>
                 <strong>Cliente no encontrado</strong><br>
                 El cliente que intentas editar no existe o ha sido eliminado.
-                <a href="dashboard.php" class="alert-link">Volver al listado</a>
+                <a href="<?php echo BASE_PATH; ?>dashboard.php" class="alert-link">Volver al listado</a>
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         <?php else: ?>

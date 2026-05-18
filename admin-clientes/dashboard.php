@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         if ($deleteResult['success']) {
             setFlash('success', 'Cliente desactivado exitosamente');
-            header('Location: dashboard.php');
+            header('Location: ' . BASE_PATH . 'dashboard.php');
             exit();
         } else {
             $error = $deleteResult['error'] ?? 'Error al desactivar cliente';
@@ -46,13 +46,13 @@ $flash = getFlash();
     <title>ShopNow - Admin Clientes - Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <link href="<?php echo BASE_PATH; ?>css/style.css" rel="stylesheet">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
         <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="dashboard.php">
+            <a class="navbar-brand fw-bold" href="<?php echo BASE_PATH; ?>dashboard.php">
                 <i class="bi bi-shop me-2"></i>ShopNow Admin
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -67,7 +67,7 @@ $flash = getFlash();
                         </span>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="logout.php">
+                        <a class="nav-link" href="<?php echo BASE_PATH; ?>logout.php">
                             <i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión
                         </a>
                     </li>
@@ -87,7 +87,7 @@ $flash = getFlash();
                 <p class="text-muted">Administra la información de todos los clientes</p>
             </div>
             <div class="col-md-4 text-md-end">
-                <a href="create.php" class="btn btn-primary btn-lg">
+                <a href="<?php echo BASE_PATH; ?>create.php" class="btn btn-primary btn-lg">
                     <i class="bi bi-plus-circle me-2"></i>Nuevo Cliente
                 </a>
             </div>
@@ -117,7 +117,7 @@ $flash = getFlash();
                     <div class="p-4 text-center">
                         <i class="bi bi-inbox" style="font-size: 48px; color: #ccc;"></i>
                         <p class="text-muted mt-3">No hay clientes registrados</p>
-                        <a href="create.php" class="btn btn-primary btn-sm mt-2">Crear Primer Cliente</a>
+                        <a href="<?php echo BASE_PATH; ?>create.php" class="btn btn-primary btn-sm mt-2">Crear Primer Cliente</a>
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">
@@ -158,7 +158,7 @@ $flash = getFlash();
                                         </td>
                                         <td>
                                             <div class="btn-group btn-group-sm" role="group">
-                                                <a href="edit.php?id=<?php echo $cliente['id_cliente']; ?>" class="btn btn-outline-primary" title="Editar">
+                                                <a href="<?php echo BASE_PATH; ?>edit.php?id=<?php echo $cliente['id_cliente']; ?>" class="btn btn-outline-primary" title="Editar">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
                                                 <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal<?php echo $cliente['id_cliente']; ?>" title="Eliminar">
