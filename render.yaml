@@ -82,3 +82,15 @@ services:
         value: 8080
       - key: SERVICE_NAME
         value: admin-clientes
+
+  # Admin Productos (Admin Dashboard for Product Management)
+  - type: web
+    name: shopnow-admin-productos
+    runtime: docker
+    plan: free
+    dockerfilePath: admin-productos/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8081
+      - key: SERVICE_NAME
+        value: admin-productos

@@ -1,19 +1,20 @@
-FROM php:8.2-apache
+FROM php:8.3-cli
 
-# Set working directory
-WORKDIR /var/www/html
+WORKDIR /app
 
-# Enable Apache modules for URL rewriting
-RUN a2enmod rewrite
+# Install required PHP extensions and system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application files
 COPY . .
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html
+# Create a directory for session storage if needed
+RUN mkdir -p /tmp/sessions && chmod 777 /tmp/sessions
 
-# Expose port 80
-EXPOSE 80
+# Expose port 8081 for the admin interface
+EXPOSE 8081
 
-# Start Apache
-CMD ["apache2-foreground"]
+# Run PHP built-in web server
+CMD ["php", "-S", "0.0.0.0:8081"]
