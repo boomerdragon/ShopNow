@@ -1,0 +1,38 @@
+# Session files
+*.sess
+*.session
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+error.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Cache
+.cache
+cache/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Sensitive files
+config.local.php
+secrets.php

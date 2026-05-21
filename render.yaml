@@ -94,3 +94,15 @@ services:
         value: 8081
       - key: SERVICE_NAME
         value: admin-productos
+
+# Admin Inventario (Admin Dashboard for Inventory Management)
+  - type: web
+    name: shopnow-admin-inventario
+    runtime: docker
+    plan: free
+    dockerfilePath: admin-inventario/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8082
+      - key: SERVICE_NAME
+        value: admin-inventario
