@@ -127,7 +127,10 @@ function isValidQuantity($quantity) {
 
 // Helper function to escape output
 function esc($text) {
-    return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    if ($text === null || $text === '') {
+        return '';
+    }
+    return htmlspecialchars((string)$text, ENT_QUOTES, 'UTF-8');
 }
 
 // Helper function to set flash message

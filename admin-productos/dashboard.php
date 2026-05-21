@@ -125,33 +125,23 @@ $flash = getFlash();
                             <thead class="table-light">
                                 <tr>
                                     <th width="10%">ID</th>
-                                    <th width="30%">Nombre</th>
-                                    <th width="25%">Descripción</th>
-                                    <th width="10%">Precio</th>
-                                    <th width="10%">Stock</th>
-                                    <th width="10%">Estado</th>
-                                    <th width="10%">Acciones</th>
+                                    <th width="35%">Descripción</th>
+                                    <th width="15%">Precio</th>
+                                    <th width="15%">Estado</th>
+                                    <th width="15%">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($productos as $producto): ?>
                                     <tr class="<?php echo !($producto['activo'] ?? true) ? 'table-secondary opacity-75' : ''; ?>">
                                         <td>
-                                            <span class="badge bg-light text-dark"><?php echo esc($producto['id_producto']); ?></span>
+                                            <span class="badge bg-light text-dark"><?php echo esc($producto['id_producto'] ?? ''); ?></span>
                                         </td>
                                         <td>
-                                            <strong><?php echo esc($producto['nombre']); ?></strong>
-                                        </td>
-                                        <td>
-                                            <small class="text-muted"><?php echo esc(substr($producto['descripcion'] ?? '', 0, 40)); ?>...</small>
+                                            <small class="text-muted"><?php echo esc(substr($producto['descripcion'] ?? '', 0, 60)); ?></small>
                                         </td>
                                         <td>
                                             <span class="fw-bold">$<?php echo number_format($producto['precio'] ?? 0, 2); ?></span>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-<?php echo ($producto['cantidad'] ?? 0) > 0 ? 'success' : 'warning'; ?>">
-                                                <?php echo esc($producto['cantidad'] ?? 0); ?> unid.
-                                            </span>
                                         </td>
                                         <td>
                                             <?php if ($producto['activo'] ?? true): ?>
