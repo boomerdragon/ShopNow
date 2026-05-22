@@ -1,10 +1,44 @@
-import csv
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2 import pool
 import os
 import requests
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List
 from auth import verify_token, create_access_token
+
+# PostgreSQL connection configuration from environment variables
+DB_CONFIG = {
+    'host': os.getenv('DATABASE_HOST', 'localhost'),
+    'user': os.getenv('DATABASE_USER', 'postgres'),
+    'password': os.getenv('DATABASE_PASS', 'password'),
+    'database': os.getenv('DATABASE_NAME', 'shopnow'),
+    'port': int(os.getenv('DATABASE_PORT', '5432'))
+}
+
+# Create connection pool
+connection_pool = None
+
+def init_connection_pool():
+    """Initialize the database connection pool"""
+    global connection_pool
+    try:
+        print("Attempting to connect to PostgreSQL...")
+        print(f"  Host: {DB_CONFIG['host']}")
+        print(f"  Database: {DB_CONFIG['database']}")
+        
+        connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
+        print("✓ Connection pool created successfully")
+        return True
+    except psycopg2.OperationalError as e:
+        print(f"✗ PostgreSQL connection error: {e}")
+        connection_pool = None
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error creating connection pool: {e}")
+        connection_pool = None
+        return False
 
 # Generar un token de servicio para llamadas internas entre servicios
 SERVICE_TOKEN = create_access_token(data={"sub": "pedidos-service", "service": "pedidos"})
@@ -14,19 +48,53 @@ app = FastAPI(
     description="Servicio encargado de la coordinación y gestión de pedidos de venta, con validación de clientes e inventario. \n\n" \
     "Este servicio actúa como el punto central de integración entre los departamentos de Clientes, Productos e Inventario para garantizar la correcta ejecución de las ventas. \n\n" \
     "Ejecutar en puerto **8002** y asegurarse de que los servicios de Clientes (8000), Productos (8001) e Inventario (8003) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    "**Versión PostgreSQL**: Almacenamiento en base de datos relacional con Render.com",
     version="3.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
 )
 
-FILE_NAME = "pedidos.csv"
-HEADERS = ["id_pedido", "id_cliente", "id_producto", "cantidad"]
+# Startup event to initialize database connection and schema
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection pool and create tables on startup"""
+    if not init_connection_pool():
+        print("⚠️  WARNING: Could not establish database connection on startup")
+        return
+    
+    if connection_pool is None:
+        print("⚠️  WARNING: Connection pool is None")
+        return
+    
+    try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pedidos (
+                id_pedido SERIAL PRIMARY KEY,
+                id_cliente INTEGER NOT NULL,
+                id_producto INTEGER NOT NULL,
+                cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        print("✓ Database table 'pedidos' initialized successfully")
+    except Exception as e:
+        print(f"✗ Error initializing database table: {e}")
+    finally:
+        cursor.close()
+        connection_pool.putconn(conn)
 
-if not os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(HEADERS)
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection pool on shutdown"""
+    global connection_pool
+    if connection_pool:
+        connection_pool.closeall()
+        print("✓ Database connection pool closed")
 
 # URLs de los servicios
 CLIENTES_URL = "http://localhost:8000"
@@ -48,25 +116,39 @@ class LoginRequest(BaseModel):
     username: str = Field(..., example="admin") # type: ignore
     password: str = Field(..., example="password123") # type: ignore
 
+def get_db_connection():
+    """Get a connection from the pool"""
+    if connection_pool is None:
+        print("ERROR: Database connection pool is not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="Database connection unavailable. Check service logs for connection details."
+        )
+    try:
+        return connection_pool.getconn()
+    except Exception as e:
+        print(f"ERROR getting connection from pool: {e}")
+        raise HTTPException(status_code=503, detail="Failed to get database connection")
+
+def return_db_connection(conn):
+    """Return a connection to the pool"""
+    if connection_pool is not None:
+        connection_pool.putconn(conn)
+
 def leer_pedidos():
-    """Lee todos los pedidos del archivo CSV con conversión de tipos correcta."""
-    with open(FILE_NAME, "r", encoding="utf-8") as f:
-        rows = csv.DictReader(f)
-        pedidos = []
-        for row in rows:
-            if not row or not row.get('id_pedido'):  # Skip empty rows
-                continue
-            try:
-                pedido = {
-                    'id_pedido': int(row['id_pedido']),
-                    'id_cliente': int(row['id_cliente']),
-                    'id_producto': int(row['id_producto']),
-                    'cantidad': int(row['cantidad'])
-                }
-                pedidos.append(pedido)
-            except (ValueError, KeyError):
-                continue  # Skip rows with invalid data
-        return pedidos
+    """Lee todos los pedidos de la base de datos PostgreSQL."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id_pedido, id_cliente, id_producto, cantidad FROM pedidos ORDER BY id_pedido")
+        pedidos = cursor.fetchall()
+        return [dict(p) for p in pedidos]
+    except Exception as e:
+        print(f"Error reading pedidos: {e}")
+        raise HTTPException(status_code=500, detail="Error reading pedidos from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.post(
     "/login",
@@ -248,17 +330,26 @@ def crear_pedido(p: PedidoRegistro, token: dict = Depends(verify_token)):
             print(f"Error descuentan inventario: {e}")
             raise HTTPException(status_code=503, detail="No se puede descontar inventario")
         
-        # PASO 5: Persistir pedido localmente
-        pedidos = leer_pedidos()
-        if pedidos and len(pedidos) > 0:
-            siguiente_id = max(ped['id_pedido'] for ped in pedidos) + 1
-        else:
-            siguiente_id = 1
-        
-        with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow([siguiente_id, p.id_cliente, p.id_producto, p.cantidad])
-        
-        return {"mensaje": "Venta completada y stock descontado", "id_pedido": siguiente_id, "status": "success"}
+        # PASO 5: Persistir pedido en PostgreSQL
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO pedidos (id_cliente, id_producto, cantidad)
+                VALUES (%s, %s, %s)
+                RETURNING id_pedido
+            """, (p.id_cliente, p.id_producto, p.cantidad))
+            
+            new_id = cursor.fetchone()[0]
+            conn.commit()
+            return {"mensaje": "Venta completada y stock descontado", "id_pedido": new_id, "status": "success"}
+        except Exception as e:
+            conn.rollback()
+            print(f"Error inserting pedido: {e}")
+            raise HTTPException(status_code=500, detail="Error registering pedido in database")
+        finally:
+            cursor.close()
+            return_db_connection(conn)
 
     except HTTPException:
         raise

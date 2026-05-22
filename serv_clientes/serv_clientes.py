@@ -1,18 +1,19 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
+import os
 from fastapi import FastAPI, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from auth import verify_token, create_access_token
 
-# PostgreSQL connection configuration
+# PostgreSQL connection configuration from environment variables
 DB_CONFIG = {
-    'host': 'dpg-d7ohmhpj2pic73abp6l0-a.oregon-postgres.render.com',
-    'user': 'shopnow_663n_user',
-    'password': 'mJKZ4Bs3pW5XqeK5c5FLlukVy1TUGEIl',
-    'database': 'shopnow_663n',
-    'port': 5432
+    'host': os.getenv('DATABASE_HOST', 'localhost'),
+    'user': os.getenv('DATABASE_USER', 'postgres'),
+    'password': os.getenv('DATABASE_PASS', 'password'),
+    'database': os.getenv('DATABASE_NAME', 'shopnow'),
+    'port': int(os.getenv('DATABASE_PORT', '5432'))
 }
 
 # Create connection pool

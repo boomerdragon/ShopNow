@@ -3,5 +3,5 @@ uvicorn
 pydantic
 email-validator
 requests
-pika
 PyJWT
+psycopg2-binary

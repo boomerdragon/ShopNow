@@ -4,3 +4,4 @@ pydantic
 email-validator
 requests
 PyJWT
+psycopg2-binary

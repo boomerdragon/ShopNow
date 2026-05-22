@@ -1,29 +1,96 @@
-import csv
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2 import pool
 import os
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from auth import verify_token, create_access_token
 
+# PostgreSQL connection configuration from environment variables
+DB_CONFIG = {
+    'host': os.getenv('DATABASE_HOST', 'localhost'),
+    'user': os.getenv('DATABASE_USER', 'postgres'),
+    'password': os.getenv('DATABASE_PASS', 'password'),
+    'database': os.getenv('DATABASE_NAME', 'shopnow'),
+    'port': int(os.getenv('DATABASE_PORT', '5432'))
+}
+
+# Create connection pool
+connection_pool = None
+
+def init_connection_pool():
+    """Initialize the database connection pool"""
+    global connection_pool
+    try:
+        print("Attempting to connect to PostgreSQL...")
+        print(f"  Host: {DB_CONFIG['host']}")
+        print(f"  Database: {DB_CONFIG['database']}")
+        
+        connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
+        print("✓ Connection pool created successfully")
+        return True
+    except psycopg2.OperationalError as e:
+        print(f"✗ PostgreSQL connection error: {e}")
+        connection_pool = None
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error creating connection pool: {e}")
+        connection_pool = None
+        return False
 
 app = FastAPI(
     title="Departamento de Productos",
     description="Servicio encargado de la custodia y registro oficial del catálogo de productos de la empresa.\n\n" \
     "Este servicio actúa como el punto central de integración para la validación de productos en los procesos de venta y gestión de pedidos. \n\n" \
     "Ejecutar en puerto **8001** y asegurarse de que los servicios de Pedidos (8002) y Clientes (8000) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    "**Versión PostgreSQL**: Almacenamiento en base de datos relacional con Render.com",
     version="3.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
 )
 
-FILE_NAME = "productos.csv"
-HEADERS = ["id_producto", "descripcion", "precio", "activo"]
+# Startup event to initialize database connection and schema
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection pool and create tables on startup"""
+    if not init_connection_pool():
+        print("⚠️  WARNING: Could not establish database connection on startup")
+        return
+    
+    if connection_pool is None:
+        print("⚠️  WARNING: Connection pool is None")
+        return
+    
+    try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS productos (
+                id_producto SERIAL PRIMARY KEY,
+                descripcion VARCHAR(255) NOT NULL,
+                precio DECIMAL(10, 2) NOT NULL CHECK (precio > 0),
+                activo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        print("✓ Database table 'productos' initialized successfully")
+    except Exception as e:
+        print(f"✗ Error initializing database table: {e}")
+    finally:
+        cursor.close()
+        connection_pool.putconn(conn)
 
-if not os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(HEADERS)
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection pool on shutdown"""
+    global connection_pool
+    if connection_pool:
+        connection_pool.closeall()
+        print("✓ Database connection pool closed")
 
 class Producto(BaseModel):
     id_producto: int = Field(..., example=1) # type: ignore
@@ -45,25 +112,39 @@ class LoginRequest(BaseModel):
     username: str = Field(..., example="admin") # type: ignore
     password: str = Field(..., example="password123") # type: ignore
 
+def get_db_connection():
+    """Get a connection from the pool"""
+    if connection_pool is None:
+        print("ERROR: Database connection pool is not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="Database connection unavailable. Check service logs for connection details."
+        )
+    try:
+        return connection_pool.getconn()
+    except Exception as e:
+        print(f"ERROR getting connection from pool: {e}")
+        raise HTTPException(status_code=503, detail="Failed to get database connection")
+
+def return_db_connection(conn):
+    """Return a connection to the pool"""
+    if connection_pool is not None:
+        connection_pool.putconn(conn)
+
 def leer_productos():
-    """Lee todos los productos del archivo CSV con conversión de tipos correcta."""
-    with open(FILE_NAME, "r", encoding="utf-8") as f:
-        rows = csv.DictReader(f)
-        productos = []
-        for row in rows:
-            if not row or not row.get('id_producto'):  # Skip empty rows
-                continue
-            try:
-                producto = {
-                    'id_producto': int(row['id_producto']),
-                    'descripcion': row['descripcion'],
-                    'precio': float(row['precio']),
-                    'activo': row['activo'].lower() in ('true', '1', 'yes')
-                }
-                productos.append(producto)
-            except (ValueError, KeyError):
-                continue  # Skip rows with invalid data
-        return productos
+    """Lee todos los productos de la base de datos PostgreSQL."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id_producto, descripcion, precio, activo FROM productos ORDER BY id_producto")
+        productos = cursor.fetchall()
+        return [dict(p) for p in productos]
+    except Exception as e:
+        print(f"Error reading productos: {e}")
+        raise HTTPException(status_code=500, detail="Error reading productos from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.post(
     "/login",
@@ -171,8 +252,8 @@ def registrar_producto(nuevo: ProductoRegistro, token: dict = Depends(verify_tok
     
     Crea un nuevo producto con el siguiente flujo:
         1. Valida los datos de entrada según el modelo ProductoRegistro
-        2. Genera un ID único autoincremental
-        3. Almacena el producto en el archivo CSV
+        2. Inserta el registro en la base de datos PostgreSQL
+        3. Retorna el ID asignado
     
     **Args**:
 
@@ -186,19 +267,25 @@ def registrar_producto(nuevo: ProductoRegistro, token: dict = Depends(verify_tok
         dict:
             Diccionario con mensaje de éxito e ID asignado del producto.
     """
-    productos = leer_productos()
-    
-    # Generar ID autoincremental
-    if productos:
-        siguiente_id = max(p['id_producto'] for p in productos) + 1
-    else:
-        siguiente_id = 1
-    
-    with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-        # Convert boolean to string for CSV storage
-        activo_str = "True" if nuevo.activo else "False"
-        csv.writer(f).writerow([siguiente_id, nuevo.descripcion, nuevo.precio, activo_str])
-    return {"mensaje": "Producto guardado exitosamente", "id_producto": siguiente_id, "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO productos (descripcion, precio, activo)
+            VALUES (%s, %s, %s)
+            RETURNING id_producto
+        """, (nuevo.descripcion, nuevo.precio, nuevo.activo))
+        
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"mensaje": "Producto guardado exitosamente", "id_producto": new_id, "status": "success"}
+    except Exception as e:
+        conn.rollback()
+        print(f"Error registering producto: {e}")
+        raise HTTPException(status_code=500, detail="Error registering producto in database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.delete(
     "/productos/{id_producto}",
@@ -232,7 +319,7 @@ def registrar_producto(nuevo: ProductoRegistro, token: dict = Depends(verify_tok
 def eliminar_producto(id_producto: int, token: dict = Depends(verify_token)):
     """**Elimina un producto existente del catálogo.**
     
-    Busca y marca un producto como inactivo por su ID único. No se elimina
+    Marca un producto como inactivo por su ID único. No se elimina
     físicamente el registro para evitar orfandad en inventario y pedidos.
     
     **Args**:
@@ -249,28 +336,33 @@ def eliminar_producto(id_producto: int, token: dict = Depends(verify_token)):
         HTTPException:
             Con status 404 si el producto no existe.
     """
-    productos = leer_productos()
-    producto = next((p for p in productos if p['id_producto'] == id_producto), None)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
-    # Marcar como inactivo en lugar de eliminar físicamente
-    producto['activo'] = False
-    
-    # Reescribir el archivo CSV con los cambios
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convert boolean to string for CSV storage
-        for item_row in productos:
-            writer.writerow({
-                'id_producto': item_row['id_producto'],
-                'descripcion': item_row['descripcion'],
-                'precio': item_row['precio'],
-                'activo': "True" if item_row['activo'] else "False"
-            })
-    
-    return {"mensaje": "Producto eliminado (inactivado) exitosamente", "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Check if producto exists
+        cursor.execute("SELECT id_producto FROM productos WHERE id_producto = %s", (id_producto,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+        
+        # Mark as inactive
+        cursor.execute("""
+            UPDATE productos
+            SET activo = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE id_producto = %s
+        """, (id_producto,))
+        
+        conn.commit()
+        return {"mensaje": "Producto eliminado (inactivado) exitosamente", "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting producto: {e}")
+        raise HTTPException(status_code=500, detail="Error deleting producto from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.patch(
     "/productos/{id_producto}",
@@ -317,6 +409,7 @@ def actualizar_producto_parcial(id_producto: int, update: ProductoUpdate, token:
         update (ProductoUpdate): Datos opcionales a actualizar.
             - descripcion (opcional): Nueva descripción (mínimo 3 caracteres)
             - precio (opcional): Nuevo precio (debe ser mayor a 0)
+            - activo (opcional): Nuevo estado de actividad
     
     **Returns**:
 
@@ -328,30 +421,45 @@ def actualizar_producto_parcial(id_producto: int, update: ProductoUpdate, token:
         HTTPException:
             Con status 404 si el producto no existe.
     """
-    productos = leer_productos()
-    producto = next((p for p in productos if p['id_producto'] == id_producto), None)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
-    # Actualizar campos proporcionados
-    if update.descripcion is not None:
-        producto['descripcion'] = update.descripcion
-    if update.precio is not None:
-        producto['precio'] = update.precio
-    if update.activo is not None:
-        producto['activo'] = update.activo
-    
-    # Reescribir el archivo CSV con los cambios
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convert boolean to string for CSV storage
-        for item_row in productos:
-            writer.writerow({
-                'id_producto': item_row['id_producto'],
-                'descripcion': item_row['descripcion'],
-                'precio': item_row['precio'],
-                'activo': "True" if item_row['activo'] else "False"
-            })
-    
-    return {"mensaje": "Producto actualizado parcialmente exitosamente", "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Check if producto exists
+        cursor.execute("SELECT id_producto FROM productos WHERE id_producto = %s", (id_producto,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if update.descripcion is not None:
+            updates.append("descripcion = %s")
+            params.append(update.descripcion)
+        if update.precio is not None:
+            updates.append("precio = %s")
+            params.append(update.precio)
+        if update.activo is not None:
+            updates.append("activo = %s")
+            params.append(update.activo)
+        
+        # Add id_producto to params for WHERE clause
+        params.append(id_producto)
+        
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            query = f"UPDATE productos SET {', '.join(updates)} WHERE id_producto = %s"
+            cursor.execute(query, params)
+            conn.commit()
+        
+        return {"mensaje": "Producto actualizado parcialmente exitosamente", "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating producto: {e}")
+        raise HTTPException(status_code=500, detail="Error updating producto in database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)

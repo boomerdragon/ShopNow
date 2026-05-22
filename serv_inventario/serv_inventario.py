@@ -1,4 +1,6 @@
-import csv
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2 import pool
 import os
 import requests
 import logging
@@ -11,6 +13,38 @@ from auth import verify_token, create_access_token
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# PostgreSQL connection configuration from environment variables
+DB_CONFIG = {
+    'host': os.getenv('DATABASE_HOST', 'localhost'),
+    'user': os.getenv('DATABASE_USER', 'postgres'),
+    'password': os.getenv('DATABASE_PASS', 'password'),
+    'database': os.getenv('DATABASE_NAME', 'shopnow'),
+    'port': int(os.getenv('DATABASE_PORT', '5432'))
+}
+
+# Create connection pool
+connection_pool = None
+
+def init_connection_pool():
+    """Initialize the database connection pool"""
+    global connection_pool
+    try:
+        print("Attempting to connect to PostgreSQL...")
+        print(f"  Host: {DB_CONFIG['host']}")
+        print(f"  Database: {DB_CONFIG['database']}")
+        
+        connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **DB_CONFIG)
+        print("✓ Connection pool created successfully")
+        return True
+    except psycopg2.OperationalError as e:
+        print(f"✗ PostgreSQL connection error: {e}")
+        connection_pool = None
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error creating connection pool: {e}")
+        connection_pool = None
+        return False
+
 # Productos service URL - supports both local and remote (Render)
 PRODUCTOS_SERVICE_URL = os.getenv("PRODUCTOS_SERVICE_URL", "http://localhost:8001")
 INVENTARIO_SERVICE_URL = os.getenv("INVENTARIO_SERVICE_URL", "http://localhost:8003")
@@ -22,20 +56,51 @@ app = FastAPI(
     description="Servicio encargado de la custodia y control de existencias físicas de productos.\n\n" \
     "Este servicio actúa como el punto central de integración para la validación de stock en los procesos de venta y gestión de pedidos. \n\n" \
     "Ejecutar en puerto **8003** y asegurarse de que los servicios de Pedidos (8002) y Productos (8001) estén activos para su correcto funcionamiento. \n\n" \
-    "**Versión HTTP**: Versión simplificada sin RabbitMQ, usando comunicación HTTP con otros servicios.",
+    "**Versión PostgreSQL**: Almacenamiento en base de datos relacional con Render.com",
     version="3.0.0",
     contact={
         "name": "Arturo Barajas, Profesor de SOA - TecNM Querétaro",
     }
 )
 
-FILE_NAME = "inventario.csv"
-HEADERS = ["id_producto", "cantidad"]
+# Startup event to initialize database connection and schema
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection pool and create tables on startup"""
+    if not init_connection_pool():
+        print("⚠️  WARNING: Could not establish database connection on startup")
+        return
+    
+    if connection_pool is None:
+        print("⚠️  WARNING: Connection pool is None")
+        return
+    
+    try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inventario (
+                id_producto INTEGER PRIMARY KEY,
+                cantidad INTEGER NOT NULL CHECK (cantidad >= 0),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        print("✓ Database table 'inventario' initialized successfully")
+    except Exception as e:
+        print(f"✗ Error initializing database table: {e}")
+    finally:
+        cursor.close()
+        connection_pool.putconn(conn)
 
-# Inicializar Archivo Oficial si no existe
-if not os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(HEADERS)
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection pool on shutdown"""
+    global connection_pool
+    if connection_pool:
+        connection_pool.closeall()
+        print("✓ Database connection pool closed")
 
 # Contrato de Servicio (Formato Oficial)
 class MovimientoInventario(BaseModel):
@@ -46,23 +111,39 @@ class LoginRequest(BaseModel):
     username: str = Field(..., example="admin") # type: ignore
     password: str = Field(..., example="password123") # type: ignore
 
+def get_db_connection():
+    """Get a connection from the pool"""
+    if connection_pool is None:
+        print("ERROR: Database connection pool is not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="Database connection unavailable. Check service logs for connection details."
+        )
+    try:
+        return connection_pool.getconn()
+    except Exception as e:
+        print(f"ERROR getting connection from pool: {e}")
+        raise HTTPException(status_code=503, detail="Failed to get database connection")
+
+def return_db_connection(conn):
+    """Return a connection to the pool"""
+    if connection_pool is not None:
+        connection_pool.putconn(conn)
+
 def leer_inventario():
-    """Lee todo el inventario del archivo CSV con conversión de tipos correcta."""
-    with open(FILE_NAME, "r", encoding="utf-8") as f:
-        rows = csv.DictReader(f)
-        items = []
-        for row in rows:
-            if not row or not row.get('id_producto'):  # Skip empty rows
-                continue
-            try:
-                item = {
-                    'id_producto': int(row['id_producto']),
-                    'cantidad': int(row['cantidad'])
-                }
-                items.append(item)
-            except (ValueError, KeyError):
-                continue  # Skip rows with invalid data
-        return items
+    """Lee todo el inventario de la base de datos PostgreSQL."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id_producto, cantidad FROM inventario ORDER BY id_producto")
+        items = cursor.fetchall()
+        return [dict(item) for item in items]
+    except Exception as e:
+        print(f"Error reading inventario: {e}")
+        raise HTTPException(status_code=500, detail="Error reading inventario from database")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 def verificar_producto_existe(id_producto: int) -> bool:
     """Verifica si un producto existe en el servicio de Productos.
@@ -296,18 +377,30 @@ def registrar_inventario(mov: MovimientoInventario, token: dict = Depends(verify
             detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos. No se puede agregar al inventario."
         )
     
-    items = leer_inventario()
-    
     # Verificar que el producto no exista ya en inventario
-    if any(item['id_producto'] == mov.id_producto for item in items):
-        raise HTTPException(status_code=400, detail="El producto ya existe en el inventario")
-    
-    # Registrar nuevo producto en inventario
-    with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow([mov.id_producto, mov.cantidad])
-    
-    logger.info(f"Producto {mov.id_producto} registrado en inventario con cantidad {mov.cantidad}")
-    return {"mensaje": "Producto registrado en inventario", "id_producto": mov.id_producto, "cantidad": mov.cantidad, "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT 1 FROM inventario WHERE id_producto = %s", (mov.id_producto,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="El producto ya existe en el inventario")
+
+        cursor.execute(
+            "INSERT INTO inventario (id_producto, cantidad) VALUES (%s, %s)",
+            (mov.id_producto, mov.cantidad)
+        )
+        conn.commit()
+
+        logger.info(f"Producto {mov.id_producto} registrado en inventario con cantidad {mov.cantidad}")
+        return {"mensaje": "Producto registrado en inventario", "id_producto": mov.id_producto, "cantidad": mov.cantidad, "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registrando inventario: {e}")
+        raise HTTPException(status_code=500, detail="Error registrando inventario en la base de datos")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.post(
     "/inventario/descontar",
@@ -364,32 +457,34 @@ def descontar_stock(mov: MovimientoInventario, token: dict = Depends(verify_toke
             detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos."
         )
     
-    items = leer_inventario()
-    encontrado = False
-    for item in items:
-        if item['id_producto'] == mov.id_producto:
-            nueva_cantidad = item['cantidad'] - mov.cantidad
-            if nueva_cantidad < 0:
-                raise HTTPException(status_code=400, detail="Stock insuficiente en almacén")
-            item['cantidad'] = nueva_cantidad
-            encontrado = True
-            break
-    
-    if not encontrado:
-        raise HTTPException(status_code=404, detail="Producto no encontrado en inventario")
-        
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convertir datos a strings para escribir en CSV
-        for item_row in items:
-            writer.writerow({
-                'id_producto': item_row['id_producto'],
-                'cantidad': item_row['cantidad']
-            })
-    
-    logger.info(f"Stock descontado del producto {mov.id_producto}. Cantidad descontada: {mov.cantidad}")
-    return {"mensaje": "Descuento de inventario aplicado exitosamente", "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT cantidad FROM inventario WHERE id_producto = %s", (mov.id_producto,))
+        producto = cursor.fetchone()
+        if not producto:
+            raise HTTPException(status_code=404, detail="Producto no encontrado en inventario")
+
+        nueva_cantidad = producto['cantidad'] - mov.cantidad
+        if nueva_cantidad < 0:
+            raise HTTPException(status_code=400, detail="Stock insuficiente en almacén")
+
+        cursor.execute(
+            "UPDATE inventario SET cantidad = %s, updated_at = CURRENT_TIMESTAMP WHERE id_producto = %s",
+            (nueva_cantidad, mov.id_producto)
+        )
+        conn.commit()
+
+        logger.info(f"Stock descontado del producto {mov.id_producto}. Cantidad descontada: {mov.cantidad}")
+        return {"mensaje": "Descuento de inventario aplicado exitosamente", "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error descontando stock en inventario: {e}")
+        raise HTTPException(status_code=500, detail="Error actualizando inventario en la base de datos")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
 @app.post(
     "/inventario/agregar",
@@ -448,29 +543,29 @@ def agregar_stock(mov: MovimientoInventario, token: dict = Depends(verify_token)
             detail=f"El producto {mov.id_producto} no existe en el catálogo de Productos."
         )
     
-    items = leer_inventario()
-    encontrado = False
-    nueva_cantidad = 0
-    for item in items:
-        if item['id_producto'] == mov.id_producto:
-            nueva_cantidad = item['cantidad'] + mov.cantidad
-            item['cantidad'] = nueva_cantidad
-            encontrado = True
-            break
-    
-    if not encontrado:
-        raise HTTPException(status_code=404, detail="Producto no encontrado en inventario")
-        
-    with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        writer.writeheader()
-        # Convertir datos a strings para escribir en CSV
-        for item_row in items:
-            writer.writerow({
-                'id_producto': item_row['id_producto'],
-                'cantidad': item_row['cantidad']
-            })
-    
-    logger.info(f"Stock agregado al producto {mov.id_producto}. Nueva cantidad: {nueva_cantidad}")
-    return {"mensaje": "Existencias agregadas exitosamente", "id_producto": mov.id_producto, "nueva_cantidad": nueva_cantidad, "status": "success"}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT cantidad FROM inventario WHERE id_producto = %s", (mov.id_producto,))
+        producto = cursor.fetchone()
+        if not producto:
+            raise HTTPException(status_code=404, detail="Producto no encontrado en inventario")
+
+        nueva_cantidad = producto['cantidad'] + mov.cantidad
+        cursor.execute(
+            "UPDATE inventario SET cantidad = %s, updated_at = CURRENT_TIMESTAMP WHERE id_producto = %s",
+            (nueva_cantidad, mov.id_producto)
+        )
+        conn.commit()
+
+        logger.info(f"Stock agregado al producto {mov.id_producto}. Nueva cantidad: {nueva_cantidad}")
+        return {"mensaje": "Existencias agregadas exitosamente", "id_producto": mov.id_producto, "nueva_cantidad": nueva_cantidad, "status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error agregando stock en inventario: {e}")
+        raise HTTPException(status_code=500, detail="Error actualizando inventario en la base de datos")
+    finally:
+        cursor.close()
+        return_db_connection(conn)
 
