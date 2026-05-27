@@ -17,7 +17,15 @@ define('BASE_PATH', $basePath);
 // API Configuration - Auto-detect environment
 // Use local development URL if running on localhost, otherwise use production
 $is_local = ($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === 'localhost:8080' || $_SERVER['HTTP_HOST'] === '127.0.0.1:8080');
-define('API_BASE_URL', $is_local ? 'http://localhost:8000' : 'https://shopnow-clientes.onrender.com');
+
+// Allow overriding the API base URL via environment variable (useful in deployments)
+$env_api_base = getenv('API_BASE_URL');
+if ($env_api_base && is_string($env_api_base) && trim($env_api_base) !== '') {
+    // Ensure no trailing slash
+    define('API_BASE_URL', rtrim(trim($env_api_base), '/'));
+} else {
+    define('API_BASE_URL', $is_local ? 'http://localhost:8000' : 'https://shopnow-clientes.onrender.com');
+}
 define('API_TIMEOUT', 10);
 
 // Session Configuration
@@ -52,58 +60,70 @@ function requireLogin() {
 // Helper function to make API calls
 function callAPI($endpoint, $method = 'GET', $data = null, $token = null, $queryParams = null) {
     $url = API_BASE_URL . $endpoint;
-    
+
     // Add query parameters if provided
     if ($queryParams && is_array($queryParams)) {
         $queryString = http_build_query($queryParams);
         $url .= '?' . $queryString;
     }
-    
-    // Build curl command with proper escaping for both Linux and Windows
-    $cmd = 'curl';
-    $cmd .= ' -s'; // silent
-    $cmd .= ' -X ' . escapeshellarg($method);
-    $cmd .= ' -H ' . escapeshellarg('Content-Type: application/json');
-    $cmd .= ' -H ' . escapeshellarg('Accept: application/json');
-    $cmd .= ' --max-time ' . escapeshellarg((string)API_TIMEOUT);
-    
+
+    // Use PHP cURL for more robust HTTP handling and status codes
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, (int)API_TIMEOUT);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json'
+    ];
+
     if ($token) {
-        $cmd .= ' -H ' . escapeshellarg('Authorization: Bearer ' . $token);
+        $headers[] = 'Authorization: Bearer ' . $token;
     }
-    
+
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
     if ($data !== null && in_array($method, ['POST', 'PUT', 'PATCH'])) {
         $json_data = json_encode($data);
-        $cmd .= ' -d ' . escapeshellarg($json_data);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $json_data);
     }
-    
-    $cmd .= ' ' . escapeshellarg($url);
-    
-    // Execute curl command - works on both Linux and Windows
-    $response = shell_exec($cmd);
-    
-    if ($response === null) {
-        // Log the failed command for debugging
-        error_log("API call failed. Command: $cmd");
-        error_log("API URL: " . API_BASE_URL . $endpoint);
+
+    $response = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false || $response === null) {
+        error_log("cURL error calling API: $curlErr");
+        error_log("API URL: $url");
         return [
             'success' => false,
-            'error' => 'Unable to connect to the Clientes service. Please verify it is running at ' . API_BASE_URL
+            'error' => 'Unable to connect to the Clientes service. Please verify it is reachable at ' . API_BASE_URL
         ];
     }
-    
-    // Trim response and decode JSON
+
     $response = trim($response);
     $decoded = json_decode($response, true);
-    
+
     if ($decoded === null) {
-        // JSON decode failed - log raw response for debugging
         error_log("JSON decode failed. Raw response: " . substr($response, 0, 500));
         return [
             'success' => false,
             'error' => 'Invalid response from Clientes service'
         ];
     }
-    
+
+    // Treat non-2xx responses as errors and surface the API message
+    if ($httpCode < 200 || $httpCode >= 300) {
+        $apiError = $decoded['detail'] ?? $decoded['error'] ?? ($decoded['message'] ?? 'Unknown error');
+        return [
+            'success' => false,
+            'error' => "Clientes service returned HTTP $httpCode: " . $apiError
+        ];
+    }
+
     return [
         'success' => true,
         'data' => $decoded
